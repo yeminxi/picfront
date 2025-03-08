@@ -1,10 +1,10 @@
 <template>
     <div class="login">
-        <img id="bg1" class="background-image1" alt="Background Image" src="/img/background.webp" style="opacity: 1;" />
-        <img id="bg2" class="background-image2" alt="Background Image" src="/img/background-light.webp" style="opacity: 1;" />
+        <img id="bg1" class="background-image1" alt="Background Image"/>
+        <img id="bg2" class="background-image2" alt="Background Image"/>
         <ToggleDark class="toggle-dark"/>
         <div class="login-container">
-            <div class="ynx"><h1><a href="https://418121.xyz/" title="返回主页">叶泯希图床登录</a></h1></div>
+            <h1 class="login-title">登录到 {{ ownerName }} 图床</h1>
             <div class="input-container">
                 <a class="input-name">密码</a>
                 <el-input 
@@ -289,18 +289,5 @@ export default {
     box-shadow: var(--toolbar-button-shadow);
     backdrop-filter: blur(10px);
     border-radius: 12px;
-}
-.ynx {
-    float: left
-}
-.ynx a{
-    margin-top: 10px;
-    text-decoration: none;
-    color: #f0f8ff;
-    font-size: 24px;
-    display: block
-}
-.ynx a:hover {
-    color: #000
 }
 </style>

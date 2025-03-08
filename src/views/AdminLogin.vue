@@ -2,7 +2,7 @@
     <div class="login">
         <ToggleDark class="toggle-dark"/>
         <div class="login-container">
-            <div class="ymx"><h1><a href="https://418121.xyz/" title="返回主页">叶泯希图床的后台</a></h1></div>
+            <h1 class="login-title">叶泯希图床的后台</h1>
             <div class="input-container">
                 <a class="input-name">用户名</a>
                 <el-input
@@ -181,18 +181,5 @@ export default {
     box-shadow: var(--toolbar-button-shadow);
     backdrop-filter: blur(10px);
     border-radius: 12px;
-}
-.ymx {
-    float: left
-}
-.ymx a {
-    margin-top: 10px;
-    text-decoration: none;
-    color: #000;
-    font-size: 24px;
-    display: block
-}
-.ymx a:hover {
-    color: #e9db5d
 }
 </style>
