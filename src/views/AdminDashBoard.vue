@@ -241,6 +241,7 @@
                 <el-descriptions-item label="上传渠道" class-name="description-item">{{ detailFile?.metadata?.Channel || '未知' }}</el-descriptions-item>
                 <el-descriptions-item label="审查结果" class-name="description-item">{{ detailFile?.metadata?.Label || '无' }}</el-descriptions-item>
                 <el-descriptions-item label="上传IP" class-name="description-item">{{ detailFile?.metadata?.UploadIP || '未知' }}</el-descriptions-item>
+                <el-descriptions-item label="上传地址" class-name="description-item">{{ detailFile?.metadata?.UploadAddress || '未知' }}</el-descriptions-item>
             </el-descriptions>
         </el-dialog>
         <el-dialog title="链接格式" v-model="showUrlDialog" :width="dialogWidth" :show-close="false">
@@ -623,6 +624,7 @@ methods: {
                         if (fileIndex !== -1) {
                             this.tableData.splice(fileIndex, 1);
                         }
+                        fileManager.removeFile(this.selectedFiles[index].name);
                     }
                 });
                 this.selectedFiles = [];
@@ -864,7 +866,22 @@ methods: {
                     if (response.ok) {
                         const fileIndex = this.tableData.findIndex(file => file.name === key);
                         if (fileIndex !== -1) {
+                            // 更新本地文件管理器
+                            const newKey = newPath + key.split('/').pop();
+                            fileManager.moveFile(key, newKey, isFolder, this.currentPath);
+                            // 移除文件
                             this.tableData.splice(fileIndex, 1);
+                            // 强制重新渲染内容
+                            this.$nextTick(() => {
+                                // 创建临时数组
+                                const tempData = [...this.tableData];
+                                // 清空数组
+                                this.tableData = [];
+                                // 在下一个tick中恢复数据
+                                this.$nextTick(() => {
+                                    this.tableData = tempData;
+                                });
+                            });
                         }
                         this.updateStats(-1, false);
                         this.$message.success('移动成功!');
@@ -873,8 +890,8 @@ methods: {
                     }
                 })
                 .then(() => {
-                    // 刷新文件列表
-                    this.refreshFileList();
+                    // 刷新本地文件列表
+                    this.refreshLocalFileList();
                 })
                 .catch(() => this.$message.error('移动失败，请检查网络连接'));
         }).catch(() => this.$message.info('已取消移动文件'));
@@ -905,19 +922,35 @@ methods: {
                     results.forEach((response, index) => {
                         if (response.ok) {
                             successNum++;
-                            this.selectedFiles[index].selected = false;
-                            const fileIndex = this.tableData.findIndex(file => file.name === this.selectedFiles[index].name);
+                            const file = this.selectedFiles[index];
+                            file.selected = false;
+                            const fileIndex = this.tableData.findIndex(f => f.name === file.name);
                             if (fileIndex !== -1) {
+                                // 更新本地文件管理器
+                                const newKey = newPath + file.name.split('/').pop();
+                                fileManager.moveFile(file.name, newKey, file.isFolder, this.currentPath);
+                                // 移除文件
                                 this.tableData.splice(fileIndex, 1);
                             }
                         }
+                    });
+                    // 强制重新渲染内容
+                    this.$nextTick(() => {
+                        // 创建临时数组
+                        const tempData = [...this.tableData];
+                        // 清空数组
+                        this.tableData = [];
+                        // 在下一个tick中恢复数据
+                        this.$nextTick(() => {
+                            this.tableData = tempData;
+                        });
                     });
                     this.updateStats(-successNum, false);
                     this.$message.success('移动成功!');
                 })
                 .then(() => {
-                    // 刷新文件列表
-                    this.refreshFileList();
+                    // 刷新本地文件列表
+                    this.refreshLocalFileList();
                 })
                 .catch(() => this.$message.error('移动失败，请检查网络连接'));
         }).catch(() => this.$message.info('已取消移动文件'));
@@ -1176,6 +1209,20 @@ methods: {
             }
         } catch (error) {
             console.error('Error refreshing file list:', error);
+            this.$message.error('刷新失败，请重试');
+        } finally {
+            this.refreshLoading = false;
+            this.loading = false;
+        }
+    },
+    // 刷新本地文件列表
+    async refreshLocalFileList() {
+        this.refreshLoading = true;
+        this.loading = true;
+        try {
+            await this.fetchFileList();
+        } catch (error) {
+            console.error('Error refreshing local file list:', error);
             this.$message.error('刷新失败，请重试');
         } finally {
             this.refreshLoading = false;

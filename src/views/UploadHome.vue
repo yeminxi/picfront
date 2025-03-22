@@ -45,7 +45,7 @@
             </el-tooltip>
         </div>
         <div class="header">
-            <<a href="https://github.com/yeminxi">
+            <a href="https://github.com/yeminxi">
                 <img class="logo" alt="叶泯希 Logo" :src="logoUrl"/>
             </a> 
             <h1 class="title"><a class="main-title" href="https://418121.xyz" target="_blank">{{ ownerName }}</a> 图床</h1>
