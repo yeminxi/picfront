@@ -1,9 +1,9 @@
 <template>
-  <div class="whitelist-container">
+  <div class="not-found-container">
     <!-- 动态背景图片 -->
     <div class="background-wrapper" v-html="backgroundImagesTemplate"></div>
     
-    <div class="whitelist-content">
+    <div class="not-found-content">
       <!-- 返回首页按钮 -->
       <div class="back-button-wrapper">
         <el-button 
@@ -16,28 +16,27 @@
         </el-button>
       </div>
 
-      <!-- 白名单图标和动画 -->
-      <div class="status-animation">
-        <div class="status-icon">
-          <font-awesome-icon icon="shield-alt" class="shield-icon" />
-          <div class="status-badge">
-            <font-awesome-icon icon="clock" class="clock-icon" />
-          </div>
+      <!-- 404动画图标 -->
+      <div class="error-animation">
+        <div class="error-number">
+          <span class="four">4</span>
+          <span class="zero">0</span>
+          <span class="four">4</span>
+        </div>
+        <div class="error-image">
+          <img :src="errorImage" alt="404" class="floating-image" />
         </div>
       </div>
       
-      <!-- 提示信息 -->
-      <div class="status-info">
-        <h1 class="status-title">白名单模式已启用</h1>
-        <p class="status-description">
-          抱歉，当前已开启白名单模式，上传的图片需要审核通过后才能展示，请等待审核通过后再进行访问。
-        </p>
-        <p class="status-description-en">
-          Sorry, the whitelist mode is currently enabled, the uploaded images need to be audited before they can be displayed, please wait for the audit to be passed before visiting.
+      <!-- 错误信息 -->
+      <div class="error-info">
+        <h1 class="error-title">页面走丢了</h1>
+        <p class="error-description">
+          抱歉，您访问的页面可能已被删除、更名或暂时不可用
         </p>
         
         <!-- 操作按钮 -->
-        <div class="status-actions">
+        <div class="error-actions">
           <el-button 
             type="primary" 
             size="large" 
@@ -58,28 +57,23 @@
           </el-button>
         </div>
         
-        <!-- 帮助信息 -->
-        <div class="help-info">
-          <p class="help-text">您可以尝试：</p>
+        <!-- 帮助链接 -->
+        <div class="help-links">
+          <p class="help-text">也许您想要：</p>
           <div class="quick-links">
             <a href="javascript:void(0)" @click="goHome" class="quick-link">
               <font-awesome-icon icon="cloud-upload-alt" />
               图片上传
+            </a>
+            <a href="javascript:void(0)" @click="goDashboard" class="quick-link">
+              <font-awesome-icon icon="tachometer-alt" />
+              管理面板
             </a>
             <a href="javascript:void(0)" @click="refreshPage" class="quick-link">
               <font-awesome-icon icon="redo" />
               刷新页面
             </a>
           </div>
-        </div>
-        
-        <!-- 项目信息 -->
-        <div class="powered-by">
-          <p>Powered By: 
-            <a href="https://github.com/MarSeventh/CloudFlare-ImgBed" class="project-link">
-              CloudFlare-ImgBed
-            </a>
-          </p>
         </div>
       </div>
     </div>
@@ -96,54 +90,50 @@
 </template>
 
 <script>
-import { useHead } from '@vueuse/head';
 import { mapGetters } from 'vuex'
 import backgroundManager from '@/mixins/backgroundManager'
 
 export default {
-    name: 'WhiteListOn',
-    mixins: [backgroundManager],
-    computed: {
-        ...mapGetters(['useDarkMode', 'userConfig']),
-    },
-    setup() {
-        useHead({
-            title: 'White List On',
-            meta: [
-                { name: 'robots', content: 'noindex, nofollow' },
-                { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-                { charset: 'UTF-8' }
-            ],
-        });
-    },
-    mounted() {
-        // 初始化背景图
-        this.initializeBackground('uploadBkImg', '.whitelist-container', false, true)
-    },
-    beforeUnmount() {
-        // 清理背景轮播定时器
-        this.clearBackgroundInterval()
-    },
-    methods: {
-        goHome() {
-            this.$router.push('/')
-        },
-        goBack() {
-            if (window.history.length > 1) {
-                this.$router.go(-1)
-            } else {
-                this.$router.push('/')
-            }
-        },
-        refreshPage() {
-            window.location.reload()
-        }
+  name: 'NotFound',
+  mixins: [backgroundManager],
+  computed: {
+    ...mapGetters(['useDarkMode', 'userConfig']),
+    errorImage() {
+      // 使用项目中已有的404图片
+      return require('@/assets/404.webp')
     }
+  },
+  mounted() {
+    // 初始化背景图
+    this.initializeBackground('uploadBkImg', '.not-found-container', false, true)
+  },
+  beforeUnmount() {
+    // 清理背景轮播定时器
+    this.clearBackgroundInterval()
+  },
+  methods: {
+    goHome() {
+      this.$router.push('/')
+    },
+    goBack() {
+      if (window.history.length > 1) {
+        this.$router.go(-1)
+      } else {
+        this.$router.push('/')
+      }
+    },
+    goDashboard() {
+      this.$router.push('/dashboard')
+    },
+    refreshPage() {
+      window.location.reload()
+    }
+  }
 }
 </script>
 
 <style scoped>
-.whitelist-container {
+.not-found-container {
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -163,7 +153,7 @@ export default {
   z-index: -1;
 }
 
-.whitelist-content {
+.not-found-content {
   text-align: center;
   z-index: 10;
   max-width: 600px;
@@ -199,52 +189,72 @@ export default {
   color: white;
 }
 
-/* 状态动画部分 */
-.status-animation {
+/* 404动画部分 */
+.error-animation {
   margin-bottom: 2rem;
   position: relative;
 }
 
-.status-icon {
-  position: relative;
-  display: inline-block;
-  margin-bottom: 1rem;
-}
-
-.shield-icon {
-  font-size: 4rem;
-  color: var(--primary-color, #409eff);
-  animation: pulse 2s ease-in-out infinite;
-  filter: drop-shadow(0 0 20px rgba(64, 158, 255, 0.3));
-}
-
-.status-badge {
-  position: absolute;
-  bottom: -5px;
-  right: -5px;
-  background: #f56c6c;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
+.error-number {
+  font-size: 6rem;
+  font-weight: 900;
   display: flex;
-  align-items: center;
   justify-content: center;
-  border: 3px solid white;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  text-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+  color: var(--primary-color, #409eff);
 }
 
-.clock-icon {
-  color: white;
-  font-size: 0.8rem;
-  animation: tick 1s ease-in-out infinite;
+.error-number span {
+  display: inline-block;
+  animation: bounce 2s infinite;
+  background: var(--not-found-title-text-color, linear-gradient(45deg, #409eff, #67c23a));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-/* 状态信息 */
-.status-info {
+.error-number .four:first-child {
+  animation-delay: -0.5s;
+}
+
+.error-number .zero {
+  animation-delay: -0.25s;
+  color: #f56c6c;
+  -webkit-text-fill-color: #f56c6c;
+}
+
+.error-number .four:last-child {
+  animation-delay: 0s;
+}
+
+.error-image {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+.floating-image {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  animation: float 3s ease-in-out infinite;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.2));
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 10px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* 错误信息 */
+.error-info {
   animation: fadeInUp 1s ease-out 0.5s both;
 }
 
-.status-title {
+.error-title {
   font-size: 2rem;
   font-weight: 700;
   margin-bottom: 1rem;
@@ -255,25 +265,16 @@ export default {
   -webkit-text-fill-color: transparent;
 }
 
-.status-description {
+.error-description {
   font-size: 1.1rem;
   line-height: 1.6;
-  margin-bottom: 1rem;
-  opacity: 0.9;
-  color: var(--text-color, #333);
-}
-
-.status-description-en {
-  font-size: 0.95rem;
-  line-height: 1.5;
   margin-bottom: 2rem;
-  opacity: 0.7;
+  opacity: 0.8;
   color: var(--text-color-secondary, #666);
-  font-style: italic;
 }
 
 /* 操作按钮 */
-.status-actions {
+.error-actions {
   display: flex;
   gap: 1rem;
   justify-content: center;
@@ -310,10 +311,9 @@ export default {
   margin-right: 8px;
 }
 
-/* 帮助信息 */
-.help-info {
+/* 帮助链接 */
+.help-links {
   animation: fadeInUp 1s ease-out 1s both;
-  margin-bottom: 1.5rem;
 }
 
 .help-text {
@@ -351,32 +351,6 @@ export default {
   color: white;
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgba(64, 158, 255, 0.3);
-}
-
-/* 项目信息 */
-.powered-by {
-  animation: fadeInUp 1s ease-out 1.2s both;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  opacity: 0.8;
-}
-
-.powered-by p {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--text-color-secondary, #666);
-}
-
-.project-link {
-  color: var(--primary-color, #409eff);
-  text-decoration: none;
-  font-weight: 600;
-  transition: all 0.3s ease;
-}
-
-.project-link:hover {
-  color: #67c23a;
-  text-shadow: 0 0 10px rgba(103, 194, 58, 0.3);
 }
 
 /* 装饰性元素 */
@@ -441,23 +415,24 @@ export default {
 }
 
 /* 动画定义 */
-@keyframes pulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
   }
-  50% {
-    transform: scale(1.05);
-    opacity: 0.8;
+  40% {
+    transform: translateY(-15px);
+  }
+  60% {
+    transform: translateY(-8px);
   }
 }
 
-@keyframes tick {
+@keyframes float {
   0%, 100% {
-    transform: rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   50% {
-    transform: rotate(180deg);
+    transform: translateY(-15px) rotate(5deg);
   }
 }
 
@@ -485,7 +460,7 @@ export default {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .whitelist-content {
+  .not-found-content {
     padding: 1.5rem;
     margin: 1rem;
     max-width: calc(100% - 2rem);
@@ -496,23 +471,20 @@ export default {
     right: -20px;
   }
   
-  .shield-icon {
-    font-size: 3rem;
+  .error-number {
+    font-size: 4rem;
+    gap: 0.3rem;
   }
   
-  .status-title {
+  .error-title {
     font-size: 1.5rem;
   }
   
-  .status-description {
+  .error-description {
     font-size: 1rem;
   }
   
-  .status-description-en {
-    font-size: 0.9rem;
-  }
-  
-  .status-actions {
+  .error-actions {
     flex-direction: column;
     align-items: center;
   }
@@ -532,62 +504,37 @@ export default {
     min-width: 120px;
     justify-content: center;
   }
-}
-
-@media (max-width: 480px) {
-  .whitelist-content {
-    padding: 1rem;
-    margin: 0.5rem;
-    max-width: calc(100% - 1rem);
-  }
   
-  .status-title {
-    font-size: 1.3rem;
-  }
-  
-  .status-description {
-    font-size: 0.95rem;
-  }
-  
-  .status-description-en {
-    font-size: 0.85rem;
-  }
-  
-  .shield-icon {
-    font-size: 2.5rem;
+  .floating-image {
+    width: 80px;
+    height: 80px;
+    border-radius: 15px;
+    padding: 8px;
   }
 }
 
 /* 深色模式适配 */
 @media (prefers-color-scheme: dark) {
-  .whitelist-container {
+  .not-found-container {
     background: var(--bg-color, linear-gradient(135deg, #2c3e50 0%, #34495e 100%));
     color: var(--text-color, #e4e7ed);
   }
   
-  .whitelist-content {
+  .not-found-content {
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
   
-  .status-title {
+  .error-title {
     color: var(--text-color, #e4e7ed);
   }
   
-  .status-description {
-    color: var(--text-color, #e4e7ed);
-  }
-  
-  .status-description-en {
+  .error-description {
     color: var(--text-color-secondary, #909399);
   }
   
   .help-text {
     color: var(--text-color-secondary, #909399);
   }
-  
-  .powered-by p {
-    color: var(--text-color-secondary, #909399);
-  }
 }
-</style>  
+</style>

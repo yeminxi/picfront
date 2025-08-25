@@ -19,9 +19,9 @@
     </div>
 </template>
 <script>
-import { mapGetters } from 'vuex';
 import DashboardTabs from '@/components/DashboardTabs.vue';
 import SysConfigTabs from '@/components/SysConfigTabs.vue';
+import SysCogStatus from '@/components/SysCogStatus.vue';
 import SysCogUpload from '@/components/SysCogUpload.vue';
 import SysCogSecurity from '@/components/SysCogSecurity.vue';
 import SysCogPage from '@/components/SysCogPage.vue';
@@ -31,7 +31,7 @@ export default {
     name: 'SystemConfig',
     data() {
         return {
-            activeIndex: 'upload',
+            activeIndex: 'status',
             isSidebarCollapse: false
         }
     },
@@ -53,13 +53,13 @@ export default {
     components: {
         DashboardTabs,
         SysConfigTabs,
+        SysCogStatus,
         SysCogUpload,
         SysCogSecurity,
         SysCogPage,
         SysCogOthers
     },
     computed: {
-        ...mapGetters(['credentials']),
         disableTooltip() {
             return window.innerWidth < 768;
         },
@@ -67,6 +67,10 @@ export default {
         currentComponent() {
             const hash = this.$route.hash.replace('#', '');
             switch (hash) {
+                case 'status':
+                    return SysCogStatus;
+                case 'upload':
+                    return SysCogUpload;
                 case 'security':
                     return SysCogSecurity;
                 case 'page':
@@ -74,42 +78,18 @@ export default {
                 case 'others':
                     return SysCogOthers;
                 default:
-                    return SysCogUpload;
+                    return SysCogStatus;
             }
         }
     },
     methods: {
-        async fetchWithAuth(url, options = {}) {
-            // 开发环境, url 前面加上 /api
-            // url = `/api${url}`;
-            if (this.credentials) {
-                // 设置 Authorization 头
-                options.headers = {
-                    ...options.headers,
-                    'Authorization': `Basic ${this.credentials}`
-                };
-                // 确保包含凭据，如 cookies
-                options.credentials = 'include'; 
-            }
-
-            const response = await fetch(url, options);
-
-            if (response.status === 401) {
-                // Redirect to the login page if a 401 Unauthorized is returned
-                this.$message.error('认证状态错误，请重新登录');
-                this.$router.push('/adminLogin'); 
-                throw new Error('Unauthorized');
-            }
-
-            return response;
-        },
         handleLogout() {
             this.$store.commit('setCredentials', null);
             this.$router.push('/adminLogin');
         },
         // 设置默认锚点
         setDefaultHash() {
-            const defaultHash = '#upload'; // 默认锚点
+            const defaultHash = '#status'; // 默认锚点
             window.location.hash = defaultHash;
             this.activeIndex = defaultHash.replace('#', '');
         },
@@ -185,8 +165,8 @@ export default {
 .main-container {
   margin-top: 60px;
   transition: margin-left 0.3s ease, width 0.3s ease; /* 添加过渡效果 */
-  width: calc(100% - 200px); /* 默认宽度（侧边栏展开时） */
-  margin-left: 130px; /* 默认左边距（侧边栏展开时） */
+  width: calc(100% - 250px); /* 默认宽度（侧边栏展开时） */
+  margin-left: 150px; /* 默认左边距（侧边栏展开时） */
 }
 
 .main-container.collapsed {

@@ -1,15 +1,13 @@
 <template>
     <div class="container">
     <div class="upload-home">
-        <img id="bg1" class="background-image1" alt="Background Image"/>
-        <img id="bg2" class="background-image2" alt="Background Image"/>
         <ToggleDark class="toggle-dark-button"/>
-        <el-tooltip content="1. 支持多文件上传，支持所有常见文件格式 <br> 2. Telegram 渠道上传的文件大小不支持超过20MB" raw-content placement="bottom">
+        <el-tooltip content="1. 支持多文件上传，支持所有常见文件格式 <br> 2. Telegram 渠道上传的文件大小不支持超过1GB" raw-content placement="bottom">
             <div class="info-container">
                 <font-awesome-icon icon="question" class="info-icon" size="lg"/>
             </div>
         </el-tooltip>
-        <el-input class="upload-folder" v-model="uploadFolder" placeholder="上传目录"/>
+        <el-input class="upload-folder" :class="{ 'active': isFolderInputActive }" v-model="uploadFolder" placeholder="上传目录" @focus="isFolderInputActive = true" @blur="isFolderInputActive = false"/>
         <el-tooltip content="切换上传方式" placement="bottom" :disabled="disableTooltip">
             <el-button class="upload-method-button" @click="handleChangeUploadMethod">
                 <font-awesome-icon v-if="uploadMethod === 'default'"  icon="folder-open" class="upload-method-icon" size="lg"/>
@@ -45,10 +43,8 @@
             </el-tooltip>
         </div>
         <div class="header">
-            <a href="https://github.com/yeminxi">
-                <img class="logo" alt="叶泯希 Logo" :src="logoUrl"/>
-            </a> 
-            <h1 class="title"><a class="main-title" href="https://418121.xyz" target="_blank">{{ ownerName }}</a> 图床</h1>
+            <Logo />
+            <h1 class="title"><a class="main-title" href="https://github.com/yeminxi" target="_blank">{{ ownerName }}</a> 图床</h1>
         </div>
         <UploadForm 
             :selectedUrlForm="selectedUrlForm" 
@@ -108,7 +104,7 @@
                     <el-input style="width: 300px;" v-model="uploadFolder" placeholder="请输入上传目录路径"/>
                 </el-form-item>
                 <el-form-item label="自动切换">
-                    <el-tooltip content="上传失败自动切换到其他渠道上传" placement="top">
+                    <el-tooltip content="对于非分块上传文件，上传失败自动切换到其他渠道上传" placement="top">
                         <font-awesome-icon icon="question-circle" class="question-icon" size="me"/>
                     </el-tooltip>
                     <el-switch
@@ -129,7 +125,7 @@
                     </el-radio-group>
                 </el-form-item>
                 <p style="font-size: medium; font-weight: bold">客户端压缩
-                    <el-tooltip content="1. 上传前在本地进行压缩，仅对图片文件生效 <br> 2. 若图片大小大于20MB，将自动进行压缩" placement="top" raw-content>
+                    <el-tooltip content="上传前在本地进行压缩，仅对图片文件生效" placement="top" raw-content>
                         <font-awesome-icon icon="question-circle" class="question-icon" size="me"/>
                     </el-tooltip>
                 </p>
@@ -179,7 +175,7 @@
         <div v-html="announcementContent"></div>
         <template #footer>
             <span class="dialog-footer">
-                <el-button type="primary" @click="showAnnouncementDialog = false">朕已阅</el-button>
+                <el-button type="primary" @click="showAnnouncementDialog = false">我已知晓！</el-button>
             </span>
         </template>
     </el-dialog>
@@ -190,32 +186,34 @@
 import UploadForm from '@/components/UploadForm.vue'
 import Footer from '@/components/Footer.vue'
 import ToggleDark from '@/components/ToggleDark.vue'
+import Logo from '@/components/Logo.vue'
+import backgroundManager from '@/mixins/backgroundManager'
 import { ref } from 'vue'
 import cookies from 'vue-cookies'
 import { mapGetters } from 'vuex'
 
 export default {
     name: 'UploadHome',
+    mixins: [backgroundManager],
     data() {
         return {
             selectedUrlForm: ref(''),
             showUrlDialog: false,
-            bingWallPaperIndex: 0,
-            customWallPaperIndex: 0,
             showCompressDialog: false,
             customerCompress: true, //上传前压缩
             compressQuality: 4, //压缩后大小
             compressBar: 5, //压缩阈值
             serverCompress: true, //服务器端压缩
-            uploadChannel: 'telegram', //上传渠道
-            uploadNameType: 'default', //上传文件命名方式
+            uploadChannel: '', //上传渠道
+            uploadNameType: '', //上传文件命名方式
             customUrlPrefix: '', //自定义链接前缀
             useCustomUrl: 'false', //是否启用自定义链接格式
             autoRetry: true, //失败自动切换
             useDefaultWallPaper: false,
             isToolBarOpen: false, //是否打开工具栏
             uploadMethod: 'default', //上传方式
-            uploadFolder: '', // 添加上传文件夹属性
+            uploadFolder: '', // 上传文件夹
+            isFolderInputActive: false,
             showAnnouncementDialog: false, // 控制公告弹窗的显示
             announcementContent: '', // 公告内容
         }
@@ -249,31 +247,20 @@ export default {
             this.$store.commit('setStoreAutoRetry', val)
         },
         uploadFolder(val) {
-            this.$store.commit('setStoreUploadFolder', val)
-        },
-        isDark(val) {
-            if (this.useDefaultWallPaper) {
-                const bg1 = document.getElementById('bg1')
-                bg1.src = val? require('@/assets/background.webp') : require('@/assets/background-light.webp')
-                bg1.onload = () => {
-                    bg1.style.opacity = this.bkOpacity
-                }
+            // 验证上传文件夹路径的合法性
+            if (this.validateUploadFolder(val)) {
+                this.$store.commit('setStoreUploadFolder', val)
+            } else {
+                this.$nextTick(() => {
+                    this.uploadFolder = this.storeUploadFolder
+                })
             }
         }
     },
     computed: {
-        ...mapGetters(['userConfig', 'bingWallPapers', 'uploadCopyUrlForm', 'compressConfig', 'storeUploadChannel', 'storeUploadNameType', 'customUrlSettings', 'storeAutoRetry', 'storeUploadMethod', 'storeUploadFolder']),
+        ...mapGetters(['userConfig', 'uploadCopyUrlForm', 'compressConfig', 'storeUploadChannel', 'storeUploadNameType', 'customUrlSettings', 'storeAutoRetry', 'storeUploadMethod', 'storeUploadFolder']),
         ownerName() {
             return this.userConfig?.ownerName || 'Sanyue'
-        },
-        logoUrl() {
-            return this.userConfig?.logoUrl || require('../assets/logo.webp')
-        },
-        bkInterval() {
-            return this.userConfig?.bkInterval || 3000
-        },
-        bkOpacity() {
-            return this.userConfig?.bkOpacity || 1
         },
         dialogWidth() {
             return window.innerWidth > 768 ? '50%' : '90%'
@@ -284,71 +271,11 @@ export default {
         urlPrefix() {
             // 全局自定义链接前缀
             return this.userConfig?.urlPrefix || `${window.location.protocol}//${window.location.host}/file/`
-        },
-        isDark() {
-            return this.$store.getters.useDarkMode
         }
     },
     mounted() {
-        const bg1 = document.getElementById('bg1')
-        const bg2 = document.getElementById('bg2')
-        if (this.userConfig?.uploadBkImg === 'bing') {
-            //bing壁纸轮播
-            this.$store.dispatch('fetchBingWallPapers').then(() => {
-                bg1.src = this.bingWallPapers[this.bingWallPaperIndex]?.url
-                bg1.onload = () => {
-                    bg1.style.opacity = this.bkOpacity
-                    // 取消container的默认背景颜色
-                    document.querySelector('.container').style.background = 'transparent'
-                }
-                setInterval(() => {
-                    //如果bing壁纸组为空，跳过
-                    let curBg = bg1.style.opacity != 0 ? bg1 : bg2
-                    let nextBg = bg1.style.opacity != 0 ? bg2 : bg1
-                    curBg.style.opacity = 0
-                    this.bingWallPaperIndex = (this.bingWallPaperIndex + 1) % this.bingWallPapers.length
-                    nextBg.src = this.bingWallPapers[this.bingWallPaperIndex]?.url
-                    nextBg.onload = () => {
-                        nextBg.style.opacity = this.bkOpacity
-                    }
-                }, this.bkInterval)
-            })
-        } else if (this.userConfig?.uploadBkImg instanceof Array && this.userConfig?.uploadBkImg?.length > 1) {
-            //自定义壁纸组轮播
-            bg1.src = this.userConfig.uploadBkImg[this.customWallPaperIndex]
-            bg1.onload = () => {
-                bg1.style.opacity = this.bkOpacity
-                // 取消container的默认背景颜色
-                document.querySelector('.container').style.background = 'transparent'
-            }
-            setInterval(() => {
-                let curBg = bg1.style.opacity != 0 ? bg1 : bg2
-                let nextBg = bg1.style.opacity != 0 ? bg2 : bg1
-                curBg.style.opacity = 0
-                this.customWallPaperIndex = (this.customWallPaperIndex + 1) % this.userConfig.uploadBkImg.length
-                nextBg.src = this.userConfig.uploadBkImg[this.customWallPaperIndex]
-                nextBg.onload = () => {
-                    nextBg.style.opacity = this.bkOpacity
-                }
-            }, this.bkInterval)
-        } else if (this.userConfig?.uploadBkImg instanceof Array && this.userConfig?.uploadBkImg.length == 1) {
-            //单张自定义壁纸
-            bg1.src = this.userConfig.uploadBkImg[0]
-            bg1.onload = () => {
-                bg1.style.opacity = this.bkOpacity
-                // 取消container的默认背景颜色
-                document.querySelector('.container').style.background = 'transparent'
-            }
-        } else {
-            //默认壁纸
-            // this.useDefaultWallPaper = true
-            // bg1.src = this.isDark? require('@/assets/background.webp') : require('@/assets/background-light.webp')
-            // bg1.onload = () => {
-            //     bg1.style.opacity = this.bkOpacity
-            //     // 取消container的默认背景颜色
-            //     document.querySelector('.container').style.background = 'transparent'
-            // }
-        }
+        // 初始化背景图，启用自动创建元素
+        this.initializeBackground('uploadBkImg', '.container', false, true)
 
         // 读取用户选择的链接格式
         this.selectedUrlForm = this.uploadCopyUrlForm || 'url'
@@ -358,18 +285,18 @@ export default {
         this.compressBar = this.compressConfig.compressBar
         this.serverCompress = this.compressConfig.serverCompress
         // 读取用户选择的上传渠道
-        this.uploadChannel = this.storeUploadChannel
+        this.uploadChannel = this.storeUploadChannel || this.userConfig?.defaultUploadChannel || 'telegram'
         // 用户定义的失败自动切换
         this.autoRetry = this.storeAutoRetry
         // 读取用户选择的上传文件命名方式
-        this.uploadNameType = this.storeUploadNameType
+        this.uploadNameType = this.storeUploadNameType || this.userConfig?.defaultUploadNameType || 'default'
         // 读取用户自定义链接格式
         this.customUrlPrefix = this.customUrlSettings.customUrlPrefix
         this.useCustomUrl = this.customUrlSettings.useCustomUrl
         // 读取用户偏好的上传方式
         this.uploadMethod = this.storeUploadMethod
         // 读取用户设置的上传文件夹
-        this.uploadFolder = this.storeUploadFolder
+        this.uploadFolder = this.storeUploadFolder || this.userConfig?.defaultUploadFolder || ''
 
         // 首次访问公告
         const visited = localStorage.getItem('visitedUploadHome')
@@ -383,9 +310,38 @@ export default {
     components: {
         UploadForm,
         Footer,
-        ToggleDark
+        ToggleDark,
+        Logo
     },
     methods: {
+        // 验证上传文件夹路径的合法性
+        validateUploadFolder(path) {
+            // 如果路径为空，返回true（允许空路径）
+            if (!path || path.trim() === '') {
+                return true
+            }
+            
+            // 检查路径是否以/开头
+            if (!path.startsWith('/')) {
+                this.$message.error('上传目录必须以 "/" 开头')
+                return false
+            }
+            
+            // 检查路径是否包含非法字符
+            const invalidChars = /[\\:\*\?"'<>\| \(\)\[\]\{\}#%\^`~;@&=\+\$,]/
+            if (invalidChars.test(path)) {
+                this.$message.error('上传目录包含非法字符，请使用合法的路径格式')
+                return false
+            }
+            
+            // 检查路径是否包含连续的斜杠
+            if (path.includes('//')) {
+                this.$message.error('上传目录不能包含连续的斜杠')
+                return false
+            }
+            
+            return true
+        },
         handleManage() {
             this.$router.push('/dashboard')
         },
@@ -395,7 +351,7 @@ export default {
         handleLogout() {
             cookies.remove('authCode')
             this.$router.push('/login')
-            this.$message.success('已退出登录~')
+            this.$message.success('已退出登录')
         },
         changeUrlForm() {
             this.$store.commit('setUploadCopyUrlForm', this.selectedUrlForm)
@@ -462,6 +418,15 @@ export default {
     }
     100% {
         transform: rotate(0deg); /* 逆时针旋转回到初始位置 */
+    }
+}
+
+@keyframes streamer {
+    0% {
+        background-position: 200% center;
+    }
+    100% {
+        background-position: -200% center;
     }
 }
 
@@ -546,6 +511,7 @@ export default {
     outline: none;
 }
 
+/* 上传文件输入框样式 */
 .upload-folder {
     width: 100px;
     height: 2.5rem;
@@ -554,11 +520,18 @@ export default {
     right: 180px;
     z-index: 100;
     border-radius: 12px;
+    transition: all 0.3s ease, width 0.4s ease;
+}
+.upload-folder.active {
+    width: 200px;
 }
 @media (max-width: 768px) {
     .upload-folder {
         width: 80px;
         height: 2rem;
+    }
+    .upload-folder.active {
+        width: 120px;
     }
 }
 .upload-folder :deep(.el-input__wrapper) {
@@ -568,6 +541,7 @@ export default {
     backdrop-filter: blur(10px);
     border: none;
 }
+
 
 .info-container {
     width: 2.5rem;
@@ -636,6 +610,17 @@ export default {
     box-shadow: var(--toolbar-button-shadow);
     backdrop-filter: blur(10px);
     color: var(--toolbar-button-color);
+}
+
+/* 按钮悬停效果 */
+.upload-folder:hover,
+.toggle-dark-button:hover,
+.info-container:hover,
+.upload-method-button:hover,
+.toolbar-manage-button:hover,
+.toolbar-button:hover {
+    transform: scale(1.05);
+    box-shadow: var(--toolbar-button-shadow-hover);
 }
 
 /* 按钮形成扇形 */
@@ -732,6 +717,8 @@ export default {
     justify-content: center;
     margin-top: 20px;
 }
+
+
 .header {
     display: flex;
     justify-content: center;
@@ -745,31 +732,49 @@ export default {
     top: -3vh;
     transition: all 0.3s ease;
 }
-.main-title {
-    background: var(--upload-main-title-color);
-    transition: all 0.3s ease;
-    background-clip: text;
-    color: transparent;
-    text-decoration: none;
-}
-.logo {
-    height: 70px;
-    width: 70px;
-    position: fixed;
-    top: 5px;
-    left: 5px;
-    z-index: 100;
-}
 .title {
     font-size: 2.5rem;
     font-weight: 700;
     font-family: 'Noto Sans SC', sans-serif;
+    position: relative;
+    padding-bottom: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.title:hover {
+    transform: scale(1.05);
+}
+.title::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--upload-main-title-color);
+    transition: width 0.4s ease-in-out;
+}
+.title:hover::after {
+    width: 100%;
 }
 @media (max-width: 768px) {
     .title {
         font-size: 1.8rem;
     }
 }
+.main-title {
+    background: var(--upload-main-title-color);
+    transition: all 0.3s ease;
+    background-clip: text;
+    color: transparent;
+    text-decoration: none;
+    display: inline-block;
+}
+.title:hover .main-title {
+    background-size: 200% auto;
+    animation: streamer 2s linear infinite;
+}
+
 .upload-home {
     display: flex;
     flex-direction: column;
@@ -796,27 +801,4 @@ export default {
 .footer {
     height: 6vh;
 }
-.background-image1 {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    z-index: -1;
-    opacity: 0;
-    transition: all 1s ease-in-out;
-}
-.background-image2 {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    z-index: -1;
-    opacity: 0;
-    transition: all 1s ease-in-out;
-}
-
 </style>

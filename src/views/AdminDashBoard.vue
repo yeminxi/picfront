@@ -5,7 +5,11 @@
             <div class="header-content">
                 <DashboardTabs activeTab="dashboard"></DashboardTabs>
                 <div class="search-card">
-                <el-input v-model="search" size="mini" placeholder="输入关键字搜索"></el-input>
+                    <el-input v-model="tempSearch" size="mini" placeholder="输入关键字搜索" @keyup.enter="handleSearch">
+                        <template #suffix>
+                            <font-awesome-icon icon="search" class="search-icon" @click="handleSearch"/>
+                        </template>
+                    </el-input>
                 </div>
                 <span class="stats">
                     <font-awesome-icon icon="database" class="fa-database"></font-awesome-icon> 文件数量: {{ Number }}
@@ -32,27 +36,27 @@
                     <template #dropdown>
                         <el-dropdown-menu>
                             <el-dropdown-item command="copy">
-                                <font-awesome-icon icon="copy" style="margin-right: 5px;"></font-awesome-icon>
+                                <font-awesome-icon icon="copy" class="batch-action-item-icon"></font-awesome-icon>
                                 复制
                             </el-dropdown-item>
                             <el-dropdown-item command="delete">
-                                <font-awesome-icon icon="trash-alt" style="margin-right: 5px;"></font-awesome-icon>
+                                <font-awesome-icon icon="trash-alt" class="batch-action-item-icon"></font-awesome-icon>
                                 删除
                             </el-dropdown-item>
                             <el-dropdown-item command="download">
-                                <font-awesome-icon icon="download" style="margin-right: 5px;"></font-awesome-icon>
+                                <font-awesome-icon icon="download" class="batch-action-item-icon"></font-awesome-icon>
                                 下载
                             </el-dropdown-item>
                             <el-dropdown-item command="move">
-                                <font-awesome-icon icon="file-export" style="margin-right: 5px;"></font-awesome-icon>
+                                <font-awesome-icon icon="file-export" class="batch-action-item-icon"></font-awesome-icon>
                                 移动
                             </el-dropdown-item>
                             <el-dropdown-item command="ban">
-                                <font-awesome-icon icon="ban" style="margin-right: 5px;"></font-awesome-icon>
+                                <font-awesome-icon icon="ban" class="batch-action-item-icon"></font-awesome-icon>
                                 加入黑名单
                             </el-dropdown-item>
                             <el-dropdown-item command="white">
-                                <font-awesome-icon icon="user-plus" style="margin-right: 5px;"></font-awesome-icon>
+                                <font-awesome-icon icon="user-plus" class="batch-action-item-icon"></font-awesome-icon>
                                 加入白名单
                             </el-dropdown-item>
                         </el-dropdown-menu>
@@ -93,7 +97,7 @@
                             <font-awesome-icon icon="folder-open" size="4x"/>
                         </div>
                         <div class="folder-overlay">
-                            <div class="folder-actions">
+                            <div v-if="!isSearchMode" class="folder-actions">
                                 <el-tooltip :disabled="disableTooltip" content="删除" placement="top">
                                     <el-button size="mini" type="danger" @click.stop="handleDelete(index, item.name)">
                                         <font-awesome-icon icon="trash-alt"></font-awesome-icon>
@@ -117,8 +121,8 @@
                             <div v-else-if="item.metadata?.ListType === 'Block' || item.metadata?.Label === 'adult'" class="fail-tag">{{ item.channelTag }}</div>
                             <div v-else class="success-tag">{{ item.channelTag }}</div>
                         </div>
-                        <video v-if="isVideo(item)" :src="'/file/' + item.name + '?from=admin'" autoplay muted loop class="video-preview" @click="handleVideoClick"></video>
-                        <el-image v-else-if="isImage(item)" :preview-teleported="true" :src="'/file/' + item.name + '?from=admin'" :preview-src-list="item.previewSrcList" fit="cover" lazy class="image-preview"></el-image>
+                        <video v-if="isVideo(item)" :src="getFileLink(item.name)" autoplay muted loop class="video-preview" @click="handleVideoClick"></video>
+                        <el-image v-else-if="isImage(item)" :preview-teleported="true" :src="getFileLink(item.name)" :preview-src-list="item.previewSrcList" fit="cover" lazy class="image-preview"></el-image>
                         <div v-else class="file-preview">
                             <font-awesome-icon icon="file" class="file-icon" size="4x"></font-awesome-icon>
                         </div>
@@ -163,7 +167,7 @@
                 <el-pagination 
                     background 
                     layout="prev, pager, next" 
-                    :total="filteredTableData.length" 
+                    :total="tableData.length" 
                     :page-size="pageSize" 
                     :current-page="currentPage" 
                     @current-change="handlePageChange">
@@ -176,7 +180,7 @@
                         <font-awesome-icon icon="sync" :class="{ 'fa-spin': refreshLoading }"/>
                     </el-button>
                     <el-button 
-                        v-if="currentPage === Math.ceil(filteredTableData.length / pageSize)" 
+                        v-if="currentPage === Math.ceil(tableData.length / pageSize)" 
                         type="primary" 
                         @click="loadMoreData" 
                         :loading="loading" 
@@ -229,8 +233,8 @@
                     :width="300"
                     align="center"
                     >
-                    <video v-if="isVideo(detailFile)" :src="'/file/' + detailFile?.name + '?from=admin'" autoplay muted loop class="video-preview" @click="handleVideoClick"></video>
-                    <el-image v-else-if="isImage(detailFile)" :src="'/file/' + detailFile?.name + '?from=admin'" fit="cover" lazy class="image-preview"></el-image>
+                    <video v-if="isVideo(detailFile)" :src="getFileLink(detailFile?.name)" autoplay muted loop class="video-preview" @click="handleVideoClick"></video>
+                    <el-image v-else-if="isImage(detailFile)" :src="getFileLink(detailFile?.name)" fit="cover" lazy class="image-preview"></el-image>
                     <font-awesome-icon v-else icon="file" class="file-icon-detail"></font-awesome-icon>
                 </el-descriptions-item>
                 <el-descriptions-item label="文件名" class-name="description-item">{{ detailFile?.metadata?.FileName || detailFile?.name }}</el-descriptions-item>
@@ -282,6 +286,8 @@ import { mapGetters } from 'vuex';
 import JSZip from 'jszip';
 import DashboardTabs from '@/components/DashboardTabs.vue';
 import { fileManager } from '@/utils/fileManager';
+import fetchWithAuth from '@/utils/fetchWithAuth';
+import WhiteListOn from './WhiteListOn.vue';
 
 export default {
 data() {
@@ -289,7 +295,9 @@ data() {
         Number: 0,
         showLogoutButton: false,
         tableData: [],
+        tempSearch: '',
         search: '',
+        isSearchMode: false,
         currentPage: 1,
         pageSize: 15,
         selectedFiles: [],
@@ -311,26 +319,18 @@ components: {
     DashboardTabs
 },
 computed: {
-    ...mapGetters(['credentials', 'adminUrlSettings', 'userConfig']),
-    filteredTableData() {
-        // 根据搜索条件过滤
-        return this.tableData.filter(data => 
-            !this.search || 
-            data.name.toLowerCase().includes(this.search.toLowerCase()) || 
-            data.metadata?.FileName?.toLowerCase().includes(this.search.toLowerCase())
-        );
-    },
+    ...mapGetters(['adminUrlSettings', 'userConfig']),
     paginatedTableData() {
-        const sortedData = this.sortData(this.filteredTableData);
+        const sortedData = this.sortData(this.tableData);
         const start = (this.currentPage - 1) * this.pageSize;
         const end = start + this.pageSize;
         let data = sortedData.slice(start, end);
         // 增加previewSrcList属性，用于预览图片
-        const fullList = data.filter(file => file.metadata?.FileType?.includes('image') ).map(file => `/file/${file.name}?from=admin`);
+        const fullList = data.filter(file => this.isImage(file)).map(file => this.getFileLink(file.name));
         data.forEach(file => {
-            if (!file.metadata?.FileType?.includes('video')) {
+            if (this.isImage(file)) {
                 // 重新排序，索引大于等于当前索引的元素在前，否则在后
-                file.previewSrcList = fullList.slice(fullList.indexOf(`/file/${file.name}?from=admin`)).concat(fullList.slice(0, fullList.indexOf(`/file/${file.name}?from=admin`)));
+                file.previewSrcList = fullList.slice(fullList.indexOf(this.getFileLink(file.name))).concat(fullList.slice(0, fullList.indexOf(this.getFileLink(file.name))));
             }
         });
         // 增加channelTag属性，用于显示渠道信息
@@ -447,9 +447,15 @@ watch: {
     }
 },
 methods: {
+    handleSearch() {
+        this.search = this.tempSearch;
+        this.isSearchMode = this.search.trim() !== '';
+        this.currentPage = 1; // 重置到第一页
+        this.refreshFileList();
+    },
     handleDownload(key) {
         const link = document.createElement('a');
-        link.href = `/file/${key}?from=admin`;
+        link.href = this.getFileLink(key);
         link.download = key;
         link.click();
     },
@@ -482,7 +488,7 @@ methods: {
         cancelButtonText: '取消',
         type: 'warning'
         }).then(() => {
-        this.fetchWithAuth(`/api/manage/delete/${key}`, { method: 'GET' })
+        fetchWithAuth(`/api/manage/delete/${key}`, { method: 'GET' })
             .then(response => {
             if (response.ok) {
                 const fileIndex = this.tableData.findIndex(file => file.name === key);
@@ -507,7 +513,7 @@ methods: {
             cancelButtonText: '取消',
             type: 'warning'
         }).then(() => {
-        this.fetchWithAuth(`/api/manage/block/${key}`, { method: 'GET' })
+        fetchWithAuth(`/api/manage/block/${key}`, { method: 'GET' })
             .then(response => {
                 if (response.ok) {
                     const fileIndex = this.tableData.findIndex(file => file.name === key);
@@ -532,7 +538,7 @@ methods: {
             cancelButtonText: '取消',
             type: 'warning'
         }).then(() => {
-        this.fetchWithAuth(`/api/manage/white/${key}`, { method: 'GET' })
+        fetchWithAuth(`/api/manage/white/${key}`, { method: 'GET' })
             .then(response => {
                 if (response.ok) {
                     const fileIndex = this.tableData.findIndex(file => file.name === key);
@@ -551,30 +557,6 @@ methods: {
             () => console.log('已取消加入白名单')
         );
     },
-    async fetchWithAuth(url, options = {}) {
-        // 开发环境, url 前面加上 /api
-        // url = `/api${url}`;
-        if (this.credentials) {
-            // 设置 Authorization 头
-            options.headers = {
-                ...options.headers,
-                'Authorization': `Basic ${this.credentials}`
-            };
-            // 确保包含凭据，如 cookies
-            options.credentials = 'include'; 
-        }
-
-        const response = await fetch(url, options);
-
-        if (response.status === 401) {
-            // Redirect to the login page if a 401 Unauthorized is returned
-            this.$message.error('认证状态错误，请重新登录');
-            this.$router.push('/adminLogin'); 
-            throw new Error('Unauthorized');
-        }
-
-        return response;
-    },
     handleDelete(index, key) {
         // 判断是否为文件夹
         const isFolder = this.tableData.find(file => file.name === key).isFolder;
@@ -584,7 +566,7 @@ methods: {
         cancelButtonText: '取消',
         type: 'warning'
         }).then(() => {
-        this.fetchWithAuth(`/api/manage/delete/${key}?folder=${isFolder}`, { method: 'GET' })
+        fetchWithAuth(`/api/manage/delete/${key}?folder=${isFolder}`, { method: 'GET' })
             .then(response => {
                 if (response.ok) {
                     const fileIndex = this.tableData.findIndex(file => file.name === key);
@@ -611,7 +593,7 @@ methods: {
         }).then(() => {
         const promises = this.selectedFiles.map(file => {
             const isFolder = file.isFolder;
-            return this.fetchWithAuth(`/api/manage/delete/${file.name}?folder=${isFolder}`, { method: 'GET' });
+            return fetchWithAuth(`/api/manage/delete/${file.name}?folder=${isFolder}`, { method: 'GET' });
         });
 
         Promise.all(promises)
@@ -696,7 +678,7 @@ methods: {
         tmpLinks = tmpLinks.replace(/^\s*[\r\n]/gm, '');
 
         const links = tmpLinks;
-        navigator.clipboard ? navigator.clipboard.writeText(links).then(() => this.$message.success('批量复制链接成功~')) :
+        navigator.clipboard ? navigator.clipboard.writeText(links).then(() => this.$message.success('批量复制链接成功')) :
         this.copyToClipboardFallback(links);
     },
     copyToClipboardFallback(text) {
@@ -709,7 +691,7 @@ methods: {
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-        this.$message.success('批量复制链接成功~');
+        this.$message.success('批量复制链接成功');
     },
     handleCopy(index, key) {
         let text = '';
@@ -756,14 +738,14 @@ methods: {
                     break;
             }
         }
-        navigator.clipboard ? navigator.clipboard.writeText(text).then(() => this.$message.success('复制文件链接成功~')) :
+        navigator.clipboard ? navigator.clipboard.writeText(text).then(() => this.$message.success('复制文件链接成功')) :
         this.copyToClipboardFallback(text);
     },
     async loadMoreData() {
         this.loading = true;
         
         try {
-            await fileManager.loadMoreFiles(this.fetchWithAuth, this.currentPath);
+            await fileManager.loadMoreFiles(this.currentPath, this.search);
             // 获取新的文件列表后
             await this.fetchFileList();
         } catch (error) {
@@ -774,12 +756,7 @@ methods: {
     },
     updateStats(num, init = false) {
         if (init) {
-            this.fetchWithAuth(`/api/manage/list?count=-1&sum=true&dir=${this.currentPath}`, { method: 'GET' })
-            .then(response => response.json())
-            .then(data => {
-                this.Number = data.sum;
-            })
-            .catch(() => this.$message.error('更新统计信息失败，请检查网络连接'));
+            this.Number = num;
         } else {
             this.Number += num;
         }
@@ -861,7 +838,7 @@ methods: {
                 this.$message.warning('目标文件夹不能是当前文件夹');
                 return;
             }
-            this.fetchWithAuth(`/api/manage/move/${key}?folder=${isFolder}&dist=${newPath}`, { method: 'GET' })
+            fetchWithAuth(`/api/manage/move/${key}?folder=${isFolder}&dist=${newPath}`, { method: 'GET' })
                 .then(response => {
                     if (response.ok) {
                         const fileIndex = this.tableData.findIndex(file => file.name === key);
@@ -913,7 +890,7 @@ methods: {
             }
             const promises = this.selectedFiles.map(file => {
                 const isFolder = file.isFolder;
-                return this.fetchWithAuth(`/api/manage/move/${file.name}?folder=${isFolder}&dist=${newPath}`, { method: 'GET' });
+                return fetchWithAuth(`/api/manage/move/${file.name}?folder=${isFolder}&dist=${newPath}`, { method: 'GET' });
             });
 
             Promise.all(promises)
@@ -966,7 +943,7 @@ methods: {
                 if (file.isFolder) {
                     return Promise.resolve({ ok: false });
                 }
-                return this.fetchWithAuth(`/api/manage/block/${file.name}`, { method: 'GET' });
+                return fetchWithAuth(`/api/manage/block/${file.name}`, { method: 'GET' });
             });
 
             Promise.all(promises)
@@ -995,7 +972,7 @@ methods: {
                 if (file.isFolder) {
                     return Promise.resolve({ ok: false });
                 }
-                return this.fetchWithAuth(`/api/manage/white/${file.name}`, { method: 'GET' });
+                return fetchWithAuth(`/api/manage/white/${file.name}`, { method: 'GET' });
             });
 
             Promise.all(promises)
@@ -1025,7 +1002,7 @@ methods: {
             if (file.isFolder) {
                 return;
             }
-            const response = await fetch(`/file/${file.name}?from=admin`);
+            const response = await fetch(this.getFileLink(file.name));
             const blob = await response.blob();
             // 检查文件名是否已经存在
             let fileName = file.metadata?.FileName || file.name;
@@ -1072,10 +1049,14 @@ methods: {
         }
         return flag;
     },
+    getFileLink(filename) {
+        const fileLink = process.env.NODE_ENV === 'production' ? `/file/${filename}?from=admin` : `/api/file/${filename}?from=admin`;
+        return fileLink;
+    },
     handlePageChange(page) {
         this.currentPage = page;
         // 到最后一页时，加载更多数据
-        if (this.currentPage === Math.ceil(this.filteredTableData.length / this.pageSize)) {
+        if (this.currentPage === Math.ceil(this.tableData.length / this.pageSize)) {
             this.loadMoreData();
         }
     },
@@ -1197,8 +1178,8 @@ methods: {
             this.tableData = [...folderItems, ...fileItems];
 
             // 更新统计信息
-            this.updateStats(0, true);
-                
+            this.updateStats(data.totalCount, true);
+
         } catch (error) {
             console.error('Error fetching file list:', error);
             this.$message.error('获取文件列表失败');
@@ -1211,7 +1192,7 @@ methods: {
         this.refreshLoading = true;
         this.loading = true;
         try {
-            const success = await fileManager.refreshFileList(this.fetchWithAuth, this.currentPath);
+            const success = await fileManager.refreshFileList(this.currentPath, this.search);
             if (success) {
                 await this.fetchFileList();
             } else {
@@ -1242,7 +1223,7 @@ methods: {
 },
 mounted() {
     this.loading = true;
-    this.fetchWithAuth("/api/manage/check", { method: 'GET' })
+    fetchWithAuth("/api/manage/check", { method: 'GET' })
         .then(response => response.text())
         .then(result => {
             if(result == "true"){
@@ -1349,6 +1330,7 @@ mounted() {
     box-shadow: var(--admin-dashboard-stats-shadow);
     transition: background-color 0.3s ease, box-shadow 0.3s ease;
     color: var(--admin-container-color);
+    cursor: pointer;
 }
 
 @media (max-width: 768px) {
@@ -1416,11 +1398,16 @@ mounted() {
     color: var(--admin-purple); /* 使用柔和的淡紫色 */
 }
 
+.batch-action-item-icon {
+    width: 20px;
+    margin-right: 5px;
+}
+
+/* 搜索卡片样式 */
 .search-card {
     margin-left: auto;
     margin-right: 20px;
 }
-
 @media (max-width: 768px) {
     .search-card {
         margin-right: 0;
@@ -1428,7 +1415,6 @@ mounted() {
         margin-top: 10px;
     }
 }
-
 .search-card :deep(.el-input__wrapper) {
     border-radius: 20px;
     background: var(--admin-dashboard-search-card-bg-color);
@@ -1444,23 +1430,44 @@ mounted() {
     transition: width 0.3s;
     background: none;
 }
-
 @media (max-width: 768px) {
     .search-card :deep(.el-input__inner) {
         width: 60vw;
     }
 }
-
 .search-card :deep(.el-input__inner:focus) {
     width: 400px;
 }
-
 @media (max-width: 768px) {
     .search-card :deep(.el-input__inner:focus) {
         width: 80vw;
     }
 }
+.search-icon {
+    cursor: pointer;
+    color: var(--admin-container-color);
+    transition: all 0.3s ease;
+    font-size: 1.3em;
+    opacity: 0;
+    transform: scale(0.8);
+    pointer-events: none;
+}
+.search-card:focus-within .search-icon {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+}
+.search-card:focus-within .search-icon:hover {
+    color: var(--admin-purple); /* 使用柔和的淡紫色 */
+    transform: scale(1.2);
+}
+.search-card :deep(.el-input__suffix) {
+    display: flex;
+    align-items: center;
+    right: 10px;
+}
 
+/* 主容器样式 */
 .main-container {
     display: flex;
     flex-direction: column;
@@ -1770,8 +1777,8 @@ mounted() {
 :deep(.el-breadcrumb__item) {
     cursor: pointer;
 }
-
 :deep(.el-breadcrumb__inner:hover) {
     color: var(--el-color-primary);
 }
+
 </style>

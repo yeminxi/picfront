@@ -127,17 +127,14 @@
                     </template>
                     <el-input v-model="channel.endpoint" :disabled="channel.fixed"/>
                 </el-form-item>
+                <el-form-item label="路径风格" prop="pathStyle">
+                    <el-switch v-model="channel.pathStyle" :disabled="channel.fixed"/>
+                </el-form-item>
                 <el-form-item label="存储桶名称" prop="bucketName">
                     <el-input v-model="channel.bucketName" :disabled="channel.fixed"/>
                 </el-form-item>
-                <el-form-item prop="region">
-                    <template #label>
-                        存储桶区域
-                        <el-tooltip content="默认填写 auto 即可" placement="top">
-                            <font-awesome-icon icon="question-circle" style="margin-left: 5px; cursor: pointer;"/>
-                        </el-tooltip>
-                    </template>
-                    <el-input v-model="channel.region" placeholder="auto" :disabled="channel.fixed"/>
+                <el-form-item label="存储桶区域" prop="region">
+                    <el-input v-model="channel.region" placeholder="默认填写 auto 即可" :disabled="channel.fixed"/>
                 </el-form-item>
                 <el-form-item label="访问密钥 ID" prop="accessKeyId">
                     <el-input v-model="channel.accessKeyId" :disabled="channel.fixed" type="password" show-password autocomplete="new-password"/>
@@ -167,7 +164,7 @@
 </template>
 
 <script>
-import { mapGetters } from 'vuex';
+import fetchWithAuth from '@/utils/fetchWithAuth';
 
 export default {
 data() {
@@ -268,7 +265,6 @@ data() {
     };
 },
 computed: {
-    ...mapGetters(['credentials']),
     // 当前选中渠道的标签
     activeChannelLabel() {
         const channel = this.channels.find(
@@ -278,30 +274,6 @@ computed: {
     }
 },
 methods: {
-    async fetchWithAuth(url, options = {}) {
-        // 开发环境, url 前面加上 /api
-        // url = `/api${url}`;
-        if (this.credentials) {
-            // 设置 Authorization 头
-            options.headers = {
-                ...options.headers,
-                'Authorization': `Basic ${this.credentials}`
-            };
-            // 确保包含凭据，如 cookies
-            options.credentials = 'include'; 
-        }
-
-        const response = await fetch(url, options);
-
-        if (response.status === 401) {
-            // Redirect to the login page if a 401 Unauthorized is returned
-            this.$message.error('认证状态错误，请重新登录');
-            this.$router.push('/adminLogin'); 
-            throw new Error('Unauthorized');
-        }
-
-        return response;
-    },
     addChannel() {
         switch (this.activeChannel) {
             case 'telegram':
@@ -325,7 +297,7 @@ methods: {
                 //     enabled: true,
                 //     fixed: false
                 // });
-                this.$message.error('暂不支持增加 R2渠道 配置');
+                this.$message.error('R2渠道请通过绑定 R2 存储桶或通过 S3 渠道添加');
                 break;
             case 's3':
                 this.s3Settings.channels.push({
@@ -338,6 +310,7 @@ methods: {
                     region: '',
                     bucketName: '',
                     endpoint: '',
+                    pathStyle: false,
                     enabled: true,
                     fixed: false
                 });
@@ -411,7 +384,7 @@ methods: {
                 cfr2: this.cfr2Settings,
                 s3: this.s3Settings
             };
-            this.fetchWithAuth('/api/manage/sysConfig/upload', {
+            fetchWithAuth('/api/manage/sysConfig/upload', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -428,7 +401,7 @@ methods: {
 mounted() {
     this.loading = true;
     // 获取上传设置
-    this.fetchWithAuth('/api/manage/sysConfig/upload')
+    fetchWithAuth('/api/manage/sysConfig/upload')
     .then((response) => response.json())
     .then((data) => {
         this.telegramSettings = data.telegram;

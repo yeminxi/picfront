@@ -23,7 +23,7 @@ export default {
       if (this.useDarkMode) {
         link.href = this.userConfig?.siteIcon || '/logo-dark.png'
       } else {
-        link.href = this.userConfig?.siteIcon || '/logo.png'
+        link.href = this.userConfig?.siteIcon || '/logo.webp'
       }
       
       document.head.appendChild(link)

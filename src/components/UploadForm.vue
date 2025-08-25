@@ -68,9 +68,18 @@
                                     </el-button>
                                 </el-tooltip>
                                 <el-tooltip :disabled="disableTooltip" content="失败重试" placement="top">
-                                    <el-button type="primary" @click="retryError">
-                                        <font-awesome-icon icon="redo" />
-                                    </el-button>
+                                    <el-dropdown>
+                                        <el-button type="primary" style="outline: none; border-right: none; border-radius: 0;" @click="retryError">
+                                            <font-awesome-icon icon="redo" />
+                                        </el-button>
+                                        <template #dropdown>
+                                            <el-dropdown-menu>
+                                                <el-dropdown-item @click="toggleAutoRetry">
+                                                    {{ autoReUpload ? '关闭自动重试' : '开启自动重试' }}
+                                                </el-dropdown-item>
+                                            </el-dropdown-menu>
+                                        </template>
+                                    </el-dropdown>
                                 </el-tooltip>
                                 <el-tooltip :disabled="disableTooltip" content="清空列表" placement="top" style="border: none;">
                                     <el-dropdown>
@@ -154,9 +163,9 @@
 </template>
 
 <script>
-import axios from 'axios'
-import cookies from 'vue-cookies'
+import axios from '@/utils/axios'
 import * as imageConversion from 'image-conversion'
+import { mapGetters } from 'vuex'
 
 export default {
 name: 'UploadForm',
@@ -239,6 +248,11 @@ data() {
         uploadCount: 0,
         pastedUrls: '',
         pasteUploadMethod: 'save',
+        // 失败文件自动重试相关
+        autoReUpload: true,
+        maxRetryCount: 10, // 最大重试次数
+        retryTimer: null, // 自动重试定时器
+        retryDelay: 12000, // 重试延迟时间（毫秒）
     }
 },
 watch: {
@@ -247,8 +261,10 @@ watch: {
             if (this.fileList.length > this.fileListLength) {
                 this.$nextTick(() => {
                     setTimeout(() => {
-                        // this.$refs.scrollContainer.setScrollTop(this.$refs.scrollContainer.wrapRef.scrollHeight) // 滚动到底部
-                        this.$refs.scrollContainer.setScrollTop(0) // 滚动到顶部
+                        if (this.$refs.scrollContainer) {
+                            // this.$refs.scrollContainer.setScrollTop(this.$refs.scrollContainer.wrapRef.scrollHeight) // 滚动到底部
+                            this.$refs.scrollContainer.setScrollTop(0) // 滚动到顶部
+                        }
                     }, 100)
                 })
             }
@@ -297,9 +313,15 @@ watch: {
             }
         },
         immediate: true
+    },
+    autoReUpload(val) {
+        this.$store.commit('setStoreAutoReUpload', val)
     }
 },
 computed: {
+    ...mapGetters([
+        'storeAutoReUpload'
+    ]),
     uploadSuccessCount() {
         return this.fileList.filter(item => item.status === 'done' || item.status === 'success').length
     },
@@ -333,9 +355,13 @@ computed: {
 },
 mounted() {
     document.addEventListener('paste', this.handlePaste)
+    this.autoReUpload = this.storeAutoReUpload
 },
 beforeUnmount() {
     document.removeEventListener('paste', this.handlePaste)
+    // 清理状态
+    this.waitingList = []
+    this.fileList = []
 },
 methods: {
     uploadFile(file) {
@@ -350,26 +376,46 @@ methods: {
         } else {
             this.fileList.find(item => item.uid === file.file.uid).status = 'uploading'
         }
-        const formData = new FormData()
-        formData.append('file', file.file)
-        // 判断是否需要服务端压缩
+
+        const uploadChannel = this.fileList.find(item => item.uid === file.file.uid).uploadChannel || this.uploadChannel
+
+        // 如果上传渠道为外链，直接使用外链上传
+        if (uploadChannel === 'external') {
+            this.uploadSingleFile(file)
+            return
+        }
+
+        // 其他渠道，检查文件大小，决定是否使用分块上传
+        const CHUNK_THRESHOLD = 20 * 1024 * 1024 // 20MB
+        if (file.file.size > CHUNK_THRESHOLD) {
+            this.uploadFileInChunks(file)
+        } else {
+            this.uploadSingleFile(file)
+        }
+    },
+    // 单文件上传
+    uploadSingleFile(file) {
         const needServerCompress = this.fileList.find(item => item.uid === file.file.uid).serverCompress
         const uploadChannel = this.fileList.find(item => item.uid === file.file.uid).uploadChannel || this.uploadChannel
         const autoRetry = this.autoRetry && uploadChannel !== 'external'
         const uploadNameType = uploadChannel === 'external' ? 'default' : this.uploadNameType
-        // 外链渠道，将外链写入formData
+        
+        const formData = new FormData()
+        formData.append('file', file.file)
         if (uploadChannel === 'external') {
             formData.append('url', file.file.url)
         }
+
         axios({
-            url: '/upload' + '?authCode=' + cookies.get('authCode') + 
-                '&serverCompress=' + needServerCompress + 
+            url: '/upload' + 
+                '?serverCompress=' + needServerCompress + 
                 '&uploadChannel=' + uploadChannel + 
                 '&uploadNameType=' + uploadNameType + 
                 '&autoRetry=' + autoRetry + 
                 '&uploadFolder=' + this.uploadFolder,
             method: 'post',
             data: formData,
+            withAuthCode: true,
             onUploadProgress: (progressEvent) => {
                 const percentCompleted = Math.round((progressEvent.loaded / progressEvent.total) * 100)
                 file.onProgress({ percent: percentCompleted, file: file.file })
@@ -377,12 +423,7 @@ methods: {
         }).then(res => {
             file.onSuccess(res, file.file)
         }).catch(err => {
-            if (err.response && err.response.status === 401) {
-                this.waitingList = []
-                this.fileList = []
-                this.$message.error('认证状态错误，请重新登录')
-                this.$router.push('/login')
-            } else {
+            if (err.response && err.response.status !== 401) {
                 this.exceptionList.push(file)
                 file.onError(err, file.file)
             }
@@ -392,12 +433,277 @@ methods: {
             }
         })
     },
+    // 分块上传
+    async uploadFileInChunks(file) {
+        const CHUNK_SIZE = 10 * 1024 * 1024 // 10MB
+        const fileSize = file.file.size
+        const totalChunks = Math.ceil(fileSize / CHUNK_SIZE)
+        
+        const needServerCompress = this.fileList.find(item => item.uid === file.file.uid).serverCompress
+        const uploadChannel = this.fileList.find(item => item.uid === file.file.uid).uploadChannel || this.uploadChannel
+        const autoRetry = this.autoRetry && uploadChannel !== 'external'
+        const uploadNameType = uploadChannel === 'external' ? 'default' : this.uploadNameType
+
+        try {
+            // 第一步：初始化分块上传，获取uploadId
+            const initFormData = new FormData()
+            initFormData.append('originalFileName', file.file.name)
+            initFormData.append('originalFileType', file.file.type)
+            initFormData.append('totalChunks', totalChunks.toString())
+
+            const initResponse = await axios({
+                url: '/upload' + 
+                    '?serverCompress=' + needServerCompress + 
+                    '&uploadChannel=' + uploadChannel + 
+                    '&uploadNameType=' + uploadNameType + 
+                    '&autoRetry=' + autoRetry + 
+                    '&uploadFolder=' + this.uploadFolder +
+                    '&initChunked=true',
+                method: 'post',
+                data: initFormData,
+                withAuthCode: true
+            })
+
+            if (!initResponse.data.success) {
+                throw new Error('初始化分块上传失败: ' + initResponse.data.message)
+            }
+
+            const uploadId = initResponse.data.uploadId
+            console.log('分块上传初始化成功，uploadId:', uploadId)
+
+            // 记录 totalChunks 和 uploadId 到文件项，用于后续清理
+            const fileItem = this.fileList.find(item => item.uid === file.file.uid)
+            if (fileItem) {
+                fileItem.totalChunks = totalChunks
+                fileItem.uploadId = uploadId
+            }
+
+            // 第二步：上传所有分块
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE
+                const end = Math.min(start + CHUNK_SIZE, fileSize)
+                const chunk = file.file.slice(start, end)
+                
+                const formData = new FormData()
+                formData.append('file', chunk, `${file.file.name}.part${i.toString().padStart(3, '0')}`)
+                formData.append('chunkIndex', i.toString())
+                formData.append('totalChunks', totalChunks.toString())
+                formData.append('uploadId', uploadId)
+                formData.append('originalFileName', file.file.name)
+                formData.append('originalFileType', file.file.type)
+
+                let retryCount = 0
+                const maxRetries = 3
+
+                while (retryCount < maxRetries) {
+                    try {
+                        await axios({
+                            url: '/upload' + 
+                                '?serverCompress=' + needServerCompress + 
+                                '&uploadChannel=' + uploadChannel + 
+                                '&uploadNameType=' + uploadNameType + 
+                                '&autoRetry=' + autoRetry + 
+                                '&uploadFolder=' + this.uploadFolder +
+                                '&chunked=true',
+                            method: 'post',
+                            data: formData,
+                            withAuthCode: true,
+                            onUploadProgress: (progressEvent) => {
+                                // 计算总体上传进度
+                                const chunkProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100)
+                                const totalProgress = Math.round(((i * 100 + chunkProgress) / totalChunks))
+                                file.onProgress({ percent: totalProgress, file: file.file })
+                            }
+                        })
+                        break // 成功，跳出重试循环
+                    } catch (err) {
+                        retryCount++
+                        if (retryCount >= maxRetries) {
+                            throw new Error(`分块 ${i + 1}/${totalChunks} 上传失败: ${err.message}`)
+                        }
+                        // 等待后重试
+                        await new Promise(resolve => setTimeout(resolve, 5000 * retryCount))
+                    }
+                }
+                
+                if (retryCount === maxRetries) {
+                    throw new Error(`分块 ${i + 1}/${totalChunks} 上传失败，已重试 ${maxRetries} 次`)
+                }
+
+                // 等待 5s
+                await new Promise(resolve => setTimeout(resolve, 5000))
+            }
+
+            // 第三步：所有分块上传完成，发送合并请求
+            const mergeFormData = new FormData()
+            mergeFormData.append('uploadId', uploadId)
+            mergeFormData.append('totalChunks', totalChunks.toString())
+            mergeFormData.append('originalFileName', file.file.name)
+            mergeFormData.append('originalFileType', file.file.type)
+
+            const response = await axios({
+                url: '/upload' + 
+                    '?serverCompress=' + needServerCompress + 
+                    '&uploadChannel=' + uploadChannel + 
+                    '&uploadNameType=' + uploadNameType + 
+                    '&autoRetry=' + autoRetry + 
+                    '&uploadFolder=' + this.uploadFolder +
+                    '&chunked=true&merge=true',
+                method: 'post',
+                data: mergeFormData,
+                withAuthCode: true
+            })
+
+            // 检查是否为异步处理
+            if (response.status === 202) {
+                // 异步处理，开始轮询状态
+                await this.pollMergeStatus(response.data.uploadId, response.data.statusCheckUrl, file)
+            } else {
+                // 同步处理完成
+                file.onSuccess(response, file.file)
+            }
+        } catch (err) {
+            console.error('分块上传失败:', err)
+            
+            // 如果有uploadId，清理相关资源
+            const fileItem = this.fileList.find(item => item.uid === file.file.uid)
+            if (fileItem && fileItem.uploadId) {
+                this.cleanupUploadResources(fileItem.uploadId, fileItem.totalChunks)
+                    .then(() => {
+                        console.log(`已清理分块上传失败的资源: ${fileItem.uploadId}`)
+                    })
+                    .catch(cleanupError => {
+                        console.warn('清理分块上传失败资源时出错:', cleanupError)
+                    })
+            }
+            
+            if (err.response && err.response.status !== 401) {
+                this.exceptionList.push(file)
+                file.onError(err, file.file)
+            }
+        } finally {
+            if (this.uploadingCount + this.waitingCount === 0) {
+                this.uploading = false
+            }
+        }
+    },
+    // 轮询合并状态
+    async pollMergeStatus(uploadId, statusCheckUrl, file) {
+        const maxPollingTime = 10 * 60 * 1000 // 10分钟最大轮询时间
+        const pollInterval = 2000 // 2秒轮询间隔
+        const startTime = Date.now()
+        
+        // 显示异步处理提示
+        const fileItem = this.fileList.find(item => item.uid === file.file.uid)
+
+        this.$message({
+            type: 'info',
+            message: `${file.file.name} 文件较大，正在后台处理中...`,
+            duration: 5000
+        })
+
+        const poll = async () => {
+            try {
+                // 检查是否超时
+                if (Date.now() - startTime > maxPollingTime) {
+                    throw new Error('合并处理超时，请稍后刷新页面查看结果')
+                }
+
+                const response = await axios({
+                    url: statusCheckUrl,
+                    method: 'get',
+                    withAuthCode: true
+                })
+
+                const status = response.data
+
+                switch (status.status) {
+                    case 'processing':
+                    case 'merging':
+                    case 'uploading':
+                        // 继续轮询
+                        setTimeout(poll, pollInterval)
+                        break
+                        
+                    case 'success':
+                        // 处理成功
+                        if (status.result) {
+                            const mockResponse = {
+                                data: status.result,
+                                status: 200
+                            }
+                            file.onSuccess(mockResponse, file.file)
+                        } else {
+                            throw new Error('处理完成但未返回结果')
+                        }
+                        break
+                        
+                    case 'error':
+                        throw new Error(status.message || status.error || '后台处理失败')
+                        
+                    default:
+                        // 继续轮询
+                        setTimeout(poll, pollInterval)
+                }
+
+            } catch (error) {
+                console.error('轮询状态失败:', error)
+                
+                // 检查是否为网络错误，如果是则继续重试
+                if (error.code === 'NETWORK_ERROR' || error.message.includes('Network Error')) {
+                    if (Date.now() - startTime < maxPollingTime) {
+                        setTimeout(poll, pollInterval * 2) // 网络错误时延长轮询间隔
+                        return
+                    }
+                }
+
+                // 处理失败
+                console.error('轮询处理失败:', error)
+                
+                // 发送清理请求以清理后台资源
+                if (fileItem && fileItem.uploadId) {
+                    this.cleanupUploadResources(fileItem.uploadId, fileItem.totalChunks)
+                        .then(() => {
+                            console.log(`已清理失败上传的资源: ${fileItem.uploadId}`)
+                        })
+                        .catch(cleanupError => {
+                            console.warn('清理失败上传资源时出错:', cleanupError)
+                        })
+                }
+                
+                this.$message.error(`${file.file.name} 后台处理失败: ${error.message}`)
+                if (fileItem) {
+                    fileItem.status = 'exception'
+                }
+                this.exceptionList.push(file)
+                file.onError(error, file.file)
+            }
+        }
+
+        // 开始轮询
+        setTimeout(poll, pollInterval)
+    },
     handleRemove(file) {
         this.fileList = this.fileList.filter(item => item.uid !== file.uid)
         this.$message({
             type: 'info',
             message: file.name + '已删除'
         })
+    },
+
+    // 清理上传资源
+    async cleanupUploadResources(uploadId, totalChunks = 0) {
+        try {
+            await axios({
+                url: `/upload?cleanup=true&uploadId=${uploadId}&totalChunks=${totalChunks}`,
+                method: 'get',
+                withAuthCode: true,
+                timeout: 5000
+            })
+            console.log(`清理上传资源成功: ${uploadId}`)
+        } catch (error) {
+            console.warn('清理上传资源失败:', error)
+        }
     },
     handleSuccess(response, file) {
         try {     
@@ -438,6 +744,12 @@ methods: {
     handleError(err, file) {
         this.$message.error(file.name + '上传失败')
         this.fileList.find(item => item.uid === file.uid).status = 'exception'
+        
+        // 如果开启了自动重试，安排自动重试
+        if (this.autoReUpload) {
+            this.scheduleAutoRetry();
+        }
+        
         if (this.waitingList.length) {
             const file = this.waitingList.shift()
             this.uploadFile(file)
@@ -473,9 +785,9 @@ methods: {
     },
     beforeUpload(file) {
         return new Promise((resolve, reject) => {
-            // 客户端压缩条件：1.文件类型为图片 2.开启客户端压缩，且文件大小大于压缩阈值；或为Telegram渠道且文件大小大于20MB
-            const needCustomCompress = file.type.includes('image') && ((this.customerCompress && file.size / 1024 / 1024 > this.compressBar) || (this.uploadChannel === 'telegram' && file.size / 1024 / 1024 > 20))
-            const isLtLim = file.size / 1024 / 1024 < 20 || this.uploadChannel !== 'telegram'
+            // 客户端压缩条件：1.文件类型为图片 2.开启客户端压缩，且文件大小大于压缩阈值
+            const needCustomCompress = file.type.includes('image') && this.customerCompress && file.size / 1024 / 1024 > this.compressBar
+            const isLtLim = file.size / 1024 / 1024 <= 1024 || this.uploadChannel !== 'telegram'
 
             const pushFileToQueue = (file, serverCompress) => {
                 const fileUrl = URL.createObjectURL(file)
@@ -490,7 +802,8 @@ methods: {
                     srcID: '',
                     status: 'uploading',
                     progreess: 0,
-                    serverCompress: serverCompress
+                    serverCompress: serverCompress,
+                    retryCount: 0,
                 })
                 resolve(file)
             }
@@ -498,8 +811,8 @@ methods: {
             if (needCustomCompress) {
                 //尝试压缩图片
                 imageConversion.compressAccurately(file, 1024 * this.compressQuality).then((res) => {
-                    //如果压缩后大于20MB，且上传渠道为telegram，则不上传
-                    if (res.size / 1024 / 1024 > 20 && this.uploadChannel === 'telegram') {
+                    //如果压缩后大于1024MB，且上传渠道为telegram，则不上传
+                    if (res.size / 1024 / 1024 > 1024 && this.uploadChannel === 'telegram') {
                         this.$message.error(file.name + '压缩后文件过大，无法上传!')
                         reject('文件过大')
                     }
@@ -673,7 +986,8 @@ methods: {
                     status: 'uploading',
                     progreess: 0,
                     serverCompress: false,
-                    uploadChannel: 'external'
+                    uploadChannel: 'external',
+                    retryCount: 0,
                 });
                 // 上传
                 this.uploadFile({ file: file, 
@@ -715,17 +1029,13 @@ methods: {
                     const urlPattern = /^(https?:\/\/[^\s$.?#].[^\s]*)$/;
                     let fileName = '';
                     if (urlPattern.test(text)) {
-                        fetch('/api/fetchRes', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ url: text })
+                        axios.post('/api/fetchRes', { url: text }, {
+                            responseType: 'blob'
                         }).then(response => {
-                            const contentType = response.headers.get('content-type');
+                            const contentType = response.headers['content-type'];
                             if (response.status == 200 && (contentType.includes('image') || contentType.includes('video'))) {
                                 // 提取文件名
-                                const disposition = response.headers.get('Content-Disposition');
+                                const disposition = response.headers['content-disposition'];
                                 if (disposition) {
                                     const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
                                     const filenameStarRegex = /filename\*\s*=\s*UTF-8''([^;\n]*)/; // 处理 filename*
@@ -763,27 +1073,27 @@ methods: {
                                     }
                                     fileName = 'PastedFile' + Date.now() + i + '.' + extension;
                                 }
-                                return response.blob();
+                                
+                                // 读取文件内容
+                                const blob = response.data;
+                                const file = new File([blob], fileName, { type: blob.type });
+                                file.uid = Date.now() + i;
+                                // 接收beforeUpload的Promise对象
+                                const checkResult = this.beforeUpload(file);
+                                if (checkResult instanceof Promise) {
+                                    checkResult.then((newFile) => {
+                                        if (newFile instanceof File) {
+                                            this.uploadFile({ file: newFile, 
+                                                onProgress: (evt) => this.handleProgress(evt), 
+                                                onSuccess: (response, file) => this.handleSuccess(response, file), 
+                                                onError: (error, file) => this.handleError(error, file) });
+                                        }
+                                    }).catch((err) => {
+                                        console.log(err);
+                                    });
+                                }
                             } else {
                                 throw new Error('URL地址的内容不是图片或视频');
-                            }
-                        })
-                        .then(blob => {
-                            const file = new File([blob], fileName, { type: blob.type });
-                            file.uid = Date.now() + i;
-                            //接收beforeUpload的Promise对象
-                            const checkResult = this.beforeUpload(file);
-                            if (checkResult instanceof Promise) {
-                                checkResult.then((newFile) => {
-                                    if (newFile instanceof File) {
-                                        this.uploadFile({ file: newFile, 
-                                            onProgress: (evt) => this.handleProgress(evt), 
-                                            onSuccess: (response, file) => this.handleSuccess(response, file), 
-                                            onError: (error, file) => this.handleError(error, file) });
-                                    }
-                                }).catch((err) => {
-                                    console.log(err);
-                                });
                             }
                         })
                         .catch(error => {
@@ -815,27 +1125,25 @@ methods: {
     },
     // 判断是否为图片类型
     isImage(fileName) {
-      const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
-      const extension = fileName.split('.').pop().toLowerCase();
-      return imageExtensions.includes(extension);
+        const imageExtensions = [
+            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'ico', 'avif', 'heic',
+            'jfif', 'pjpeg', 'pjp', 'raw', 'cr2', 'nef', 'dng', 'eps', 'ai', 'emf', 'wmf'
+        ];
+        const extension = fileName.split('.').pop().toLowerCase();
+        return imageExtensions.includes(extension);
     },
     // 判断是否为视频类型
     isVideo(fileName) {
-      const videoExtensions = ['mp4', 'webm', 'ogg', 'mkv'];
-      const extension = fileName.split('.').pop().toLowerCase();
-      return videoExtensions.includes(extension);
+        const videoExtensions = ['mp4', 'webm', 'ogg', 'mkv'];
+        const extension = fileName.split('.').pop().toLowerCase();
+        return videoExtensions.includes(extension);
     },
     handleScroll(event) {
         this.listScrolled = event.scrollTop > 0 && this.fileList.length > 0
     },
     retryError() {
         if (this.exceptionList.length > 0) {
-            this.exceptionList.forEach(file => {
-                this.uploadFile({ file: file.file, 
-                    onProgress: (evt) => this.handleProgress(evt), 
-                    onSuccess: (response, file) => this.handleSuccess(response, file), 
-                    onError: (error, file) => this.handleError(error, file) });
-            });
+            this.retryFailedFiles(this.exceptionList);
             this.exceptionList = []
         } else {
             this.$message({
@@ -843,6 +1151,56 @@ methods: {
                 message: '无上传失败文件'
             })
         }
+    },
+    toggleAutoRetry() {
+        this.autoReUpload = !this.autoReUpload;
+        this.$message({
+            type: this.autoReUpload ? 'success' : 'info',
+            message: this.autoReUpload ? '自动重试已开启' : '自动重试已关闭'
+        });
+        
+        // 如果开启自动重试且有失败文件，立即开始重试
+        if (this.autoReUpload && this.exceptionList.length > 0) {
+            this.scheduleAutoRetry();
+        }
+    },
+    retryFailedFiles(files) {
+        files.forEach(file => {
+            const retryCount = file.retryCount || 0;
+            if (retryCount < this.maxRetryCount) {
+                file.retryCount = retryCount + 1;
+                this.uploadFile({ 
+                    file: file.file, 
+                    onProgress: (evt) => this.handleProgress(evt), 
+                    onSuccess: (response, file) => this.handleSuccess(response, file), 
+                    onError: (error, file) => this.handleError(error, file) 
+                });
+            } else {
+                this.$message({
+                    type: 'warning',
+                    message: `${file.name} 已达到最大重试次数(${this.maxRetryCount})，停止重试`
+                });
+            }
+        });
+    },
+    scheduleAutoRetry() {
+        if (this.retryTimer) {
+            clearTimeout(this.retryTimer);
+        }
+        
+        this.retryTimer = setTimeout(() => {
+            if (this.autoReUpload && this.exceptionList.length > 0) {
+                const filesToRetry = [...this.exceptionList];
+                this.exceptionList = [];
+                this.retryFailedFiles(filesToRetry);
+            }
+        }, this.retryDelay);
+    },
+},
+beforeDestroy() {
+    // 清理定时器
+    if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
     }
 }
 }
@@ -974,6 +1332,9 @@ methods: {
     background-color: var(--el-upload-dragger-bg-color);
     backdrop-filter: blur(10px);
     transition: all 0.3s ease;
+}
+:deep(.el-upload:focus .el-upload-dragger) {
+    border-color: var(--el-upload-dragger-border-color);
 }
 :deep(.el-upload-dragger:hover) {
     opacity: 0.8;
@@ -1127,5 +1488,47 @@ methods: {
 .file-icon {
     font-size: 30px;
     color: var(--upload-list-file-icon-color);
+}
+
+/* Added for flickering light points effect */
+:deep(.el-upload-dragger::after) {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Important: allows interaction with dragger content */
+  background-image: radial-gradient(circle, var(--el-upload-dragger-uniform-color) 0.8px, transparent 1.2px); /* Small, semi-transparent dots */
+  background-size: 30px 30px; /* Adjust for density of dots */
+  opacity: 0; /* Initially hidden */
+  transition: opacity 0.4s ease-in-out; /* Smooth appearance/disappearance of the effect layer */
+  z-index: 0; /* Positioned above the dragger's background but below its content */
+}
+
+.upload-card:hover :deep(.el-upload-dragger::after) {
+  opacity: 1; /* Make the dot layer visible on hover */
+  animation: flickerAnimation 2s infinite linear; /* Start flickering animation */
+}
+
+@keyframes flickerAnimation {
+  0% {
+    background-position: 0 0;
+    opacity: 0.7; /* Base opacity for visible dots */
+  }
+  25% {
+    opacity: 0.4; /* Dimming part of flicker */
+  }
+  50% {
+    background-position: 15px 15px; /* Shift dot positions for a twinkling movement */
+    opacity: 0.8; /* Brighter part of flicker */
+  }
+  75% {
+    opacity: 0.3; /* Further dimming */
+  }
+  100% {
+    background-position: 30px 30px; /* Continue dot movement */
+    opacity: 0.7; /* Return to base opacity */
+  }
 }
 </style>
