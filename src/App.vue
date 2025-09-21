@@ -21,7 +21,7 @@ export default {
       
       // 根据深色模式选择不同的 logo
       if (this.useDarkMode) {
-        link.href = this.userConfig?.siteIcon || '/logo-dark.png'
+        link.href = this.userConfig?.siteIcon || '/logo.webp'
       } else {
         link.href = this.userConfig?.siteIcon || '/logo.webp'
       }

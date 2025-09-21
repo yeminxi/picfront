@@ -71,7 +71,7 @@ const presetSiteIcon = (isDarkMode, userConfig) => {
     link.rel = 'icon';
     
     if (isDarkMode) {
-        link.href = userConfig?.siteIcon || '/logo-dark.png';
+        link.href = userConfig?.siteIcon || '/logo.webp';
     } else {
         link.href = userConfig?.siteIcon || '/logo.webp';
     }
