@@ -6,16 +6,20 @@ export default createStore({
   state: {
     userConfig: null,
     bingWallPapers: [],
-    credentials: null,
+    // 会话状态标记（不存储密码，实际认证通过 HttpOnly Cookie）
+    adminLoggedIn: false,
+    userLoggedIn: false,
     uploadMethod: 'default',
     uploadCopyUrlForm: '',
     compressConfig: {
-      customerCompress: true,
-      compressQuality: 4,
-      compressBar: 5,
-      serverCompress: true,
+      customerCompress: undefined,
+      compressQuality: undefined,
+      compressBar: undefined,
+      serverCompress: undefined,
+      convertToWebp: undefined,
     },
     storeUploadChannel: '',
+    storeChannelName: null, // 指定的渠道名称，null表示从未选择，''表示用户主动清空
     storeAutoRetry: true,
     storeUploadNameType: '',
     uploadFolder: '',
@@ -35,11 +39,15 @@ export default createStore({
   getters: {
     userConfig: state => state.userConfig,
     bingWallPapers: state => state.bingWallPapers,
-    credentials: state => state.credentials,
+    // 保留 credentials getter 以兼容 fetchWithAuth.js 等现有代码
+    credentials: state => state.adminLoggedIn ? '__session__' : null,
+    adminLoggedIn: state => state.adminLoggedIn,
+    userLoggedIn: state => state.userLoggedIn,
     storeUploadMethod: state => state.uploadMethod,
     uploadCopyUrlForm: state => state.uploadCopyUrlForm,
     compressConfig: state => state.compressConfig,
     storeUploadChannel: state => state.storeUploadChannel,
+    storeChannelName: state => state.storeChannelName,
     storeUploadNameType: state => state.storeUploadNameType,
     customUrlSettings: state => state.customUrlSettings,
     storeAutoRetry: state => state.storeAutoRetry,
@@ -58,8 +66,15 @@ export default createStore({
     setBingWallPapers(state, bingWallPapers) {
       state.bingWallPapers = bingWallPapers;
     },
+    // 兼容旧代码：setCredentials 映射到 adminLoggedIn
     setCredentials(state, credentials) {
-      state.credentials = credentials;
+      state.adminLoggedIn = credentials !== null && credentials !== undefined;
+    },
+    setAdminLoggedIn(state, loggedIn) {
+      state.adminLoggedIn = loggedIn;
+    },
+    setUserLoggedIn(state, loggedIn) {
+      state.userLoggedIn = loggedIn;
     },
     setUploadMethod(state, uploadMethod) {
       state.uploadMethod = uploadMethod;
@@ -72,6 +87,9 @@ export default createStore({
     },
     setStoreUploadChannel(state, uploadChannel) {
       state.storeUploadChannel = uploadChannel;
+    },
+    setStoreChannelName(state, channelName) {
+      state.storeChannelName = channelName;
     },
     setStoreUploadNameType(state, storeUploadNameType) {
       state.storeUploadNameType = storeUploadNameType;
@@ -136,5 +154,23 @@ export default createStore({
   },
   modules: {
   },
-  plugins: [createPersistedState()]
+  plugins: [createPersistedState({
+    // 只持久化非敏感数据，不持久化认证状态
+    paths: [
+      'userConfig',
+      'uploadMethod',
+      'uploadCopyUrlForm',
+      'compressConfig',
+      'storeUploadChannel',
+      'storeChannelName',
+      'storeAutoRetry',
+      'storeUploadNameType',
+      'uploadFolder',
+      'customUrlSettings',
+      'adminUrlSettings',
+      'autoReUpload',
+      'useDarkMode',
+      'cusDarkMode',
+    ]
+  })]
 })

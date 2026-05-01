@@ -1,6 +1,7 @@
 <template>
-    <div class="login">
+    <div class="login" :style="viewportStyle">
         <ToggleDark class="toggle-dark"/>
+        <LanguageSwitcher class="language-switcher"/>
         <Logo />
         <div class="login-container">
             <h1 class="login-title" tabindex="0">{{ title }}</h1>
@@ -11,7 +12,9 @@
                     class="input-name" 
                     :ref="`inputLabel${index}`"
                     :style="{ '--underline-width': labelUnderlineWidths[index] + 'px' }"
-                >{{ field.label }}</label>
+                >
+                    {{ field.label }}
+                </label>
                 <div class="input-wrapper">
                     <el-input
                         v-model="formData[field.key]"
@@ -22,12 +25,24 @@
                         @keyup.enter.native="handleSubmit"
                         @focus="handleInputFocus"
                         @blur="handleInputBlur"
-                    ></el-input>
-                    <div class="input-underline"></div>
+                    >
+                        <template #prefix v-if="field.icon">
+                            <el-icon class="el-input__icon"><component :is="field.icon" /></el-icon>
+                        </template>
+                    </el-input>
                 </div>
             </div>
             
-            <el-button class="submit" type="primary" @click="handleSubmit">{{ submitText }}</el-button>
+            <el-button 
+                class="submit" 
+                :class="{ 'is-loading': loading }"
+                type="primary" 
+                @click="handleSubmit"
+                :disabled="loading"
+            >
+                <div v-if="loading" class="loading-ring"></div>
+                <span v-else>{{ computedSubmitText }}</span>
+            </el-button>
         </div>
         <Footer class="footer"/>
     </div>
@@ -36,6 +51,7 @@
 <script>
 import Footer from '@/components/Footer.vue';
 import ToggleDark from '@/components/ToggleDark.vue';
+import LanguageSwitcher from '@/components/LanguageSwitcher.vue';
 import Logo from '@/components/Logo.vue';
 import { mapGetters } from 'vuex';
 import backgroundManager from '@/mixins/backgroundManager';
@@ -58,7 +74,7 @@ export default {
         // 提交按钮文本
         submitText: {
             type: String,
-            default: '登录'
+            default: ''
         },
         // 背景图配置键名
         backgroundKey: {
@@ -69,16 +85,37 @@ export default {
         isAdmin: {
             type: Boolean,
             default: false
+        },
+        // 是否正在加载
+        loading: {
+            type: Boolean,
+            default: false
         }
     },
     data() {
         return {
             formData: {},
-            labelUnderlineWidths: []
+            labelUnderlineWidths: [],
+            isFocused: false,
+            viewportHeight: 0
         }
     },
     computed: {
         ...mapGetters(['userConfig']),
+        computedSubmitText() {
+            return this.submitText || this.$t('login.submit');
+        },
+        viewportStyle() {
+            // 当检测到虚拟键盘弹出时，将容器高度收缩到可见视口高度
+            // 容器本身 flex 居中，高度缩小后登录卡片自然在可见区域内居中
+            if (this.viewportHeight > 0) {
+                return {
+                    height: `${this.viewportHeight}px`,
+                    minHeight: `${this.viewportHeight}px`
+                };
+            }
+            return {};
+        }
     },
     watch: {
         fields: {
@@ -93,6 +130,7 @@ export default {
     components: {
         Footer,
         ToggleDark,
+        LanguageSwitcher,
         Logo
     },
     mounted() {
@@ -104,6 +142,17 @@ export default {
         this.$nextTick(() => {
             this.calculateLabelWidths();
         });
+        // 监听 visualViewport 变化，检测虚拟键盘弹出
+        this._handleViewportResize = this.handleViewportResize.bind(this);
+        if (window.visualViewport) {
+            this._initialHeight = window.visualViewport.height;
+            window.visualViewport.addEventListener('resize', this._handleViewportResize);
+        }
+    },
+    beforeDestroy() {
+        if (window.visualViewport && this._handleViewportResize) {
+            window.visualViewport.removeEventListener('resize', this._handleViewportResize);
+        }
     },
     methods: {
         initFormData() {
@@ -143,10 +192,28 @@ export default {
             });
         },
         handleSubmit() {
+            if (this.loading) return;
             // 触发父组件的提交事件，传递表单数据
             this.$emit('submit', { ...this.formData });
         },
+        handleViewportResize() {
+            if (!window.visualViewport) return;
+            const currentHeight = window.visualViewport.height;
+            // 键盘高度 = 初始视口高度 - 当前视口高度
+            const keyboardHeight = this._initialHeight - currentHeight;
+            // 设定阈值：视口缩小超过 150px 才认为是虚拟键盘弹出
+            // 避免地址栏收缩等小幅变化误触发
+            const KEYBOARD_THRESHOLD = 150;
+            if (keyboardHeight > KEYBOARD_THRESHOLD) {
+                // 将容器高度设为当前可见视口高度
+                // flex 居中会让登录卡片自然在可见区域内居中，不会顶部溢出或底部留白
+                this.viewportHeight = currentHeight;
+            } else {
+                this.viewportHeight = 0;
+            }
+        },
         handleInputFocus(event) {
+            this.isFocused = true;
             const container = event.target.closest('.input-container');
             if (container) {
                 const wrapper = container.querySelector('.input-wrapper');
@@ -156,6 +223,7 @@ export default {
             }
         },
         handleInputBlur(event) {
+            this.isFocused = false;
             const container = event.target.closest('.input-container');
             if (container) {
                 const wrapper = container.querySelector('.input-wrapper');
@@ -174,17 +242,23 @@ export default {
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    height: 100vh;
+    min-height: 100vh;
+    height: auto;
     background: var(--admin-container-bg-color, var(--bg-color));
+    overflow-y: auto;
+    padding: 20px 0;
+    box-sizing: border-box;
+    transition: height 0.35s ease-out, min-height 0.35s ease-out;
 }
 
 .login-title {
-    font-size: 2.5rem;
+    font-size: 2.3rem;
     margin-bottom: 15px;
     color: var(--login-title-color);
-    font-family: 'Noto Sans SC', sans-serif;
+    font-family: 'Righteous', 'Noto Sans SC', sans-serif;
     cursor: pointer;
     transition: all 0.3s ease;
+    letter-spacing: 2px;
 }
 @media (max-width: 768px) {
     .login-title {
@@ -201,19 +275,26 @@ export default {
 .login-container {
     display: flex;
     flex-direction: column;
-    justify-content: space-around;
+    justify-content: center;
     align-items: center;
-    height: 45vh;
-    width: 40vw;
+    min-height: auto;
+    height: auto;
+    width: 600px;
     border-radius: 12px;
     box-shadow: var(--login-container-box-shadow);
     background-color: var(--login-container-bg-color);
     backdrop-filter: blur(8px);
     transition: all 0.3s ease;
+    padding: 40px 0;
+    gap: 20px;
+    position: relative;
+    z-index: 101;
 }
 @media (max-width: 768px) {
     .login-container {
-        width: 80vw;
+        width: 85vw;
+        padding: 25px 0;
+        gap: 12px;
     }
 }
 .login-container:hover {
@@ -223,115 +304,150 @@ export default {
 
 .input-container {
     display: flex;
-    align-items: center;
-    width: 35vw;
-    margin-bottom: 25px;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 80%;
+    margin-bottom: 15px;
     position: relative;
-    gap: 15px;
+    gap: 8px;
 }
 @media (max-width: 768px) {
     .input-container {
-        width: 75vw;
-        gap: 10px;
+        width: 85%;
+        gap: 4px;
+        margin-bottom: 8px;
     }
 }
 
 .input-wrapper {
     position: relative;
-    flex: 1;
+    width: 100%;
     display: flex;
     flex-direction: column;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.input-name {
+.input-icon {
+    margin-right: 6px;
     font-size: 1rem;
+}
+
+.input-name {
+    font-size: 0.95rem;
     font-weight: 600;
     color: var(--login-title-color);
-    text-align: right;
-    width: 80px;
-    min-width: 60px;
+    text-align: left;
     transition: all 0.3s ease;
     letter-spacing: 0.5px;
     position: relative;
-    flex-shrink: 0;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    height: 50px;
+    justify-content: flex-start;
+    padding-left: 2px;
 }
 
-.input-name::before {
+.input-name::after {
     content: '';
     position: absolute;
-    right: 0;
-    bottom: 12px;
+    left: 0;
+    bottom: -2px;
     width: 0;
     height: 2px;
     background: linear-gradient(90deg, var(--login-input-underline-color, #5b9bd3), var(--login-input-underline-secondary-color, #7ba9d8));
-    transition: width 0.3s ease;
+    transition: width 0.3s linear;
+    border-radius: 1px;
 }
 
-.input-container:has(.input-wrapper.focused) .input-name::before,
-.input-container:hover .input-name::before {
+.input-container:has(.input-wrapper.focused) .input-name::after,
+.input-container:hover .input-name::after {
     width: var(--underline-width, 50px);
 }
 
 .input-container:has(.input-wrapper.focused) .input-name,
 .input-container:hover .input-name {
     color: var(--login-input-label-focus-color, #5b9bd3);
-    transform: translateX(-3px);
-}
-
-.input-underline {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--login-input-underline-color, #5b9bd3), var(--login-input-underline-secondary-color, #7ba9d8));
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 2;
-}
-
-.input-wrapper.focused .input-underline {
-    width: 90%;
 }
 
 @media (max-width: 768px) {
     .input-name {
-        font-size: 0.9rem;
-        width: 60px;
-        min-width: 50px;
-        height: 45px;
-    }
-    
-    .input-wrapper.focused .input-underline {
-        width: 95%;
+        font-size: 0.85rem;
     }
 }
 
 .submit {
     margin-bottom: 10px;
-    width: 40%;
-    height: 15%;
+    width: 50%;
+    height: 48px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 2px;
     border-radius: 12px;
     background-color: var(--login-submit-btn-bg-color);
-    transition: all 0.3s ease;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     border: none;
+    overflow: hidden;
+    position: relative;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
-.submit:hover,
-.submit:focus {
+.submit.is-loading {
+    width: 48px;
+    border-radius: 50%;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    pointer-events: none;
+}
+
+/* Custom Ring Spinner */
+.loading-ring {
+    display: inline-block;
+    width: 34px;
+    height: 34px;
+    border: 4px solid transparent;
+    border-radius: 50%;
+    border-top-color: var(--login-title-color, #ffffff);
+    animation: spin 1s ease-in-out infinite;
+    box-sizing: border-box;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+    .submit {
+        width: 50%;
+    }
+}
+
+.submit:not(.is-loading):hover,
+.submit:not(.is-loading):focus {
     transform: translateY(-3px) scale(1.05);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+.submit:disabled {
+    cursor: default;
+    transform: none;
+}
+
 .password-input {
-    width: 90%;
+    width: 100%;
     height: 50px;
     position: relative;
-    margin-bottom: 4px;
+}
+
+.password-input:deep(.el-input__prefix) {
+    color: var(--login-input-icon-color, #909399);
+    font-size: 1rem;
+    transition: color 0.3s ease;
+}
+
+.password-input:deep(.el-input__wrapper):focus-within .el-input__prefix {
+    color: var(--login-input-label-focus-color, #5b9bd3);
 }
 
 .password-input:deep(.el-input__wrapper) {
@@ -412,12 +528,12 @@ export default {
 
 @media (max-width: 768px) {
     .password-input {
-        width: 95%;
-        height: 45px;
+        width: 100%;
+        height: 40px;
     }
     
     .password-input:deep(.el-input__wrapper) {
-        padding: 10px 14px;
+        padding: 8px 12px;
     }
 }
 
@@ -438,6 +554,32 @@ export default {
     border-radius: 12px;
 }
 .toggle-dark:hover {
+    transform: scale(1.05);
+    box-shadow: var(--toolbar-button-shadow-hover);
+}
+.language-switcher {
+    position: fixed;
+    top: 30px;
+    right: 80px;
+    transition: all 0.3s ease;
+    background-color: var(--toolbar-button-bg-color);
+    box-shadow: var(--toolbar-button-shadow);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+@media (max-width: 768px) {
+    .language-switcher {
+        width: 2rem;
+        height: 2rem;
+    }
+}
+.language-switcher:hover {
     transform: scale(1.05);
     box-shadow: var(--toolbar-button-shadow-hover);
 }

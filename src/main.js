@@ -11,10 +11,14 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import App from './App.vue'
 import router from './router'
 import store from './store'
+import i18n from './locales'
 
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/global.css'
+
+// OverlayScrollbars 悬浮滚动条
+import 'overlayscrollbars/overlayscrollbars.css'
 
 
 library.add(fas);
@@ -31,7 +35,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 const initDarkModeClass = () => {
     const htmlElement = document.documentElement;
     let isDarkMode;
-    
+
     // 判断用户是否是自定义模式
     if (store.state.cusDarkMode && store.state.useDarkMode !== null) {
         // 用户手动设置了暗色模式
@@ -47,7 +51,7 @@ const initDarkModeClass = () => {
         // 更新 useDarkMode 的值
         store.commit('setUseDarkMode', isDarkMode);
     }
-    
+
     if (isDarkMode) {
         htmlElement.classList.add('dark');
     } else {
@@ -69,8 +73,8 @@ const presetSiteTitle = (userConfig) => {
     document.title = userConfig?.siteTitle || 'Sanyue ImgHub';
 };
 
-// 预设网站图标的函数
-const presetSiteIcon = (isDarkMode, userConfig) => { 
+// 预设和更新网站图标的函数
+const presetSiteIcon = (isDarkMode, userConfig) => {
     // 同时更改 icon apple-touch-icon 和 mask-icon
     const existingIcons = document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"], link[rel="mask-icon"]');
     existingIcons.forEach(icon => icon.remove());
@@ -83,13 +87,13 @@ const presetSiteIcon = (isDarkMode, userConfig) => {
     maskIconLink.rel = 'mask-icon';
 
     if (isDarkMode) {
-        iconLink.href = userConfig?.siteIcon || '/logo-dark.png';
-        appleIconLink.href = userConfig?.siteIcon || '/logo-dark.png';
-        maskIconLink.href = userConfig?.siteIcon || '/logo-dark.png';
+        iconLink.href = userConfig?.siteIcon || '/static/media/logo-dark.png';
+        appleIconLink.href = userConfig?.siteIcon || '/static/media/logo-dark.png';
+        maskIconLink.href = userConfig?.siteIcon || '/static/media/logo-dark.png';
     } else {
-        iconLink.href = userConfig?.siteIcon || '/logo.webp';
-        appleIconLink.href = userConfig?.siteIcon || '/logo.webp';
-        maskIconLink.href = userConfig?.siteIcon || '/logo.webp';
+        iconLink.href = userConfig?.siteIcon || '/static/media/logo.png';
+        appleIconLink.href = userConfig?.siteIcon || '/static/media/logo.png';
+        maskIconLink.href = userConfig?.siteIcon || '/static/media/logo.png';
     }
 
     document.head.appendChild(iconLink);
@@ -100,30 +104,30 @@ const presetSiteIcon = (isDarkMode, userConfig) => {
 store.dispatch('fetchUserConfig').then(() => {
     // 初始化时应用 dark 模式
     initDarkModeClass();
-    
+
     // 预设网站标题和图标
     presetSiteTitle(store.getters.userConfig);
     presetSiteIcon(store.state.useDarkMode, store.getters.userConfig);
-    
+
     // 监听 useDarkMode 和 cusDarkMode 的变化
     store.subscribe((mutation, state) => {
         if (mutation.type === 'setUseDarkMode' && store.state.cusDarkMode) {
-          applyDarkModeClass(state.useDarkMode);
-          // 同时更新网站图标
-          presetSiteIcon(state.useDarkMode, store.getters.userConfig);
+            applyDarkModeClass(state.useDarkMode);
+            // 同时更新网站图标
+            presetSiteIcon(state.useDarkMode, store.getters.userConfig);
         }
-        
+
         // 监听 cusDarkMode 变化，当设置为 false 时重新初始化
         if (mutation.type === 'setCusDarkMode' && !mutation.payload) {
-          // 切换到跟随系统模式，重新初始化
-          initDarkModeClass();
+            // 切换到跟随系统模式，重新初始化
+            initDarkModeClass();
             // 同时更新网站图标
-          presetSiteIcon(store.state.useDarkMode, store.getters.userConfig);
+            presetSiteIcon(store.state.useDarkMode, store.getters.userConfig);
         }
     });
 
-    app.use(store).use(router).use(ElementPlus).mount('#app');
+    app.use(store).use(router).use(ElementPlus).use(i18n).mount('#app');
 }).catch(error => {
     console.error('Failed to load user configuration:', error);
-    app.use(store).use(router).use(ElementPlus).use(head).mount('#app');
+    app.use(store).use(router).use(ElementPlus).use(i18n).use(head).mount('#app');
 })

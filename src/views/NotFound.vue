@@ -100,7 +100,7 @@ export default {
     ...mapGetters(['useDarkMode', 'userConfig']),
     errorImage() {
       // 使用项目中已有的404图片
-      return require('@/assets/404.webp')
+      return require('@/assets/404.png')
     }
   },
   mounted() {
